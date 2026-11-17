@@ -5,6 +5,7 @@ import { W, H, ARENA, ECHO_COLORS, clamp, lerp, hash01 } from './config.js';
 import { STAGE_NAMES } from './levels.js';
 import { iso, screenToWorld, isoDiamond, extrudeBox, isoShadow, ISO_S } from './iso.js';
 import { drawThief, drawTurret, drawWarden, segDist } from './entities.js';
+import { glowSprite, drawGlow, vbeamSprite } from './glow.js';
 
 const GOLD = '#fbbf24';
 const CYAN = '#22d3ee';
@@ -33,7 +34,13 @@ function text(ctx, s, x, y, font, color, align = 'center', baseline = 'middle') 
 // The diorama floats over a deep dark-teal/obsidian abyss with a faint
 // holographic circuit grid. The vault floor itself is an isometric diamond
 // of brushed steel tiles with glowing conduits and a glossy sheen.
-export function drawFloor(ctx, G, time) {
+// The static diorama never changes between frames (its animated bits —
+// pulsing circuit nodes, drifting dust, conduit sparks — are drawn live on
+// top), so it is painted ONCE into an offscreen canvas and stamped with
+// drawImage. That is the single biggest per-frame saving: ~70 tile
+// diamonds + 110 circuit crosses + 8 spotlight gradients become one blit.
+let floorCache = null;
+function drawFloorStatic(ctx) {
   // Abyss.
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#04141a');
@@ -82,23 +89,6 @@ export function drawFloor(ctx, G, time) {
       ctx.moveTo(nx, ny - arm * 0.7); ctx.lineTo(nx, ny + arm * 0.7);
       ctx.stroke();
     }
-  }
-  // Pulsing circuit nodes + drifting dust motes.
-  for (let i = 0; i < 18; i++) {
-    const nx = hash01(i * 9.4 + 0.31) * W;
-    const ny = hash01(i * 6.2 + 0.77) * H;
-    const pulse = 0.18 + 0.16 * Math.sin(time * 1.4 + i * 1.7);
-    ctx.fillStyle = `rgba(34,211,238,${pulse})`;
-    ctx.beginPath();
-    ctx.arc(nx, ny, 2.2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  for (let i = 0; i < 42; i++) {
-    const bx = hash01(i * 3.9 + 0.41) * W;
-    const by = hash01(i * 8.8 + 0.19) * H;
-    const drift = Math.sin(time * 0.22 + i * 2.4) * 14;
-    ctx.fillStyle = `rgba(165,243,252,${0.10 + 0.10 * hash01(i * 1.9)})`;
-    ctx.fillRect(bx + drift, by + Math.cos(time * 0.16 + i) * 8, 2, 2);
   }
   ctx.restore();
   // The floating floor slab: a thick extruded diamond under the whole arena.
@@ -187,15 +177,6 @@ export function drawFloor(ctx, G, time) {
   ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
   ctx.stroke();
   ctx.restore();
-  // Gold conduit sparks.
-  for (const s of G.stage.sparks) {
-    const tw = 0.5 + 0.5 * Math.sin(time * 2 + s.p);
-    const p = iso(s.x, s.y);
-    ctx.fillStyle = `rgba(251,191,36,${0.3 * tw * s.s})`;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 1.6 * s.s, 0, Math.PI * 2);
-    ctx.fill();
-  }
   // Brass inlay rim around the chamber.
   ctx.strokeStyle = 'rgba(251,191,36,0.6)';
   ctx.lineWidth = 3;
@@ -263,6 +244,43 @@ export function drawFloor(ctx, G, time) {
   v.addColorStop(1, 'rgba(0,0,0,0.5)');
   ctx.fillStyle = v;
   ctx.fillRect(0, 0, W, H);
+}
+
+// The live floor: one blit of the cached static diorama, then only the
+// animated bits — pulsing circuit nodes, drifting dust motes, conduit
+// sparks — drawn on top.
+export function drawFloor(ctx, G, time) {
+  if (!floorCache) {
+    floorCache = document.createElement('canvas');
+    floorCache.width = W;
+    floorCache.height = H;
+    drawFloorStatic(floorCache.getContext('2d'));
+  }
+  ctx.drawImage(floorCache, 0, 0);
+  for (let i = 0; i < 18; i++) {
+    const nx = hash01(i * 9.4 + 0.31) * W;
+    const ny = hash01(i * 6.2 + 0.77) * H;
+    const pulse = 0.18 + 0.16 * Math.sin(time * 1.4 + i * 1.7);
+    ctx.fillStyle = `rgba(34,211,238,${pulse})`;
+    ctx.beginPath();
+    ctx.arc(nx, ny, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = 0; i < 42; i++) {
+    const bx = hash01(i * 3.9 + 0.41) * W;
+    const by = hash01(i * 8.8 + 0.19) * H;
+    const drift = Math.sin(time * 0.22 + i * 2.4) * 14;
+    ctx.fillStyle = `rgba(165,243,252,${0.10 + 0.10 * hash01(i * 1.9)})`;
+    ctx.fillRect(bx + drift, by + Math.cos(time * 0.16 + i) * 8, 2, 2);
+  }
+  for (const s of G.stage.sparks) {
+    const tw = 0.5 + 0.5 * Math.sin(time * 2 + s.p);
+    const p = iso(s.x, s.y);
+    ctx.fillStyle = `rgba(251,191,36,${0.3 * tw * s.s})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 1.6 * s.s, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 // --- Flat world decals ------------------------------------------------------
@@ -348,14 +366,12 @@ export function drawProps(ctx, G, time) {
     ctx.strokeStyle = `rgba(255,255,255,${0.9 * tw})`;
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-    // Emitter pillars.
-    for (const p of [a, b]) {
-      const grad = ctx.createLinearGradient(p.x, p.y - 60, p.x, p.y);
-      grad.addColorStop(0, 'rgba(239,68,68,0)');
-      grad.addColorStop(1, `rgba(239,68,68,${0.65 * tw})`);
-      ctx.fillStyle = grad;
-      ctx.fillRect(p.x - 3, p.y - 60, 6, 60);
-    }
+    // Emitter pillars (pre-rendered beam sprite, alpha = live pulse).
+    ctx.save();
+    ctx.globalAlpha = tw;
+    const pillar = vbeamSprite('239,68,68', 6, 60, 0.65);
+    for (const p of [a, b]) ctx.drawImage(pillar, p.x - 3, p.y - 60);
+    ctx.restore();
     ctx.restore();
     for (const p of [a, b]) {
       ctx.fillStyle = '#3a2b22';
@@ -484,9 +500,13 @@ function drawProp(ctx, p, time) {
 // carries a depth key (x + y — larger is nearer the camera), the list is
 // sorted, then drawn. That is what makes the isometric diorama read as real
 // 3D: nearer walls and characters occlude farther ones.
+// Reused across frames: the depth-sorted item list is rebuilt every frame,
+// but the array itself (and its closure objects) is the only per-frame
+// allocation left in the painter's pass — the sort is small (tens of items).
+const items = [];
 export function drawEntities(ctx, G, time) {
   const S = G.stage;
-  const items = [];
+  items.length = 0;
   const add = (x, y, f) => items.push({ d: x + y, f });
 
   // Walls: extruded dark-slate slabs with height variation, a brass top
@@ -602,11 +622,10 @@ export function drawEntities(ctx, G, time) {
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         const pulse = 0.5 + 0.5 * Math.sin(time * 4);
-        const grad = ctx.createLinearGradient(c.x, c.y - 110, c.x, c.y);
-        grad.addColorStop(0, `rgba(${pillarCol},0)`);
-        grad.addColorStop(1, `rgba(${pillarCol},${0.6 + 0.25 * pulse})`);
-        ctx.fillStyle = grad;
-        ctx.fillRect(c.x - 8, c.y - 110, 16, 110);
+        // Pre-rendered pillar sprite; the live pulse is just globalAlpha.
+        ctx.globalAlpha = (0.6 + 0.25 * pulse) / 0.85;
+        ctx.drawImage(vbeamSprite(pillarCol, 16, 110, 0.85), c.x - 8, c.y - 110);
+        ctx.globalAlpha = 1;
         ctx.fillStyle = `rgba(255,255,255,${0.3 + 0.2 * pulse})`;
         ctx.beginPath();
         ctx.ellipse(c.x, c.y, p.r + 4, (p.r + 4) * 0.5, 0, 0, Math.PI * 2);
@@ -734,26 +753,15 @@ export function drawEntities(ctx, G, time) {
       ctx.ellipse(p.x, p.y, 20, 11, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      // Vertical light beam above the pod (like the reference's pillars).
+      // Vertical light beam above the pod (pre-rendered sprite).
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const beam = ctx.createLinearGradient(p.x, p.y - 90, p.x, p.y);
-      beam.addColorStop(0, 'rgba(34,211,238,0)');
-      beam.addColorStop(1, 'rgba(34,211,238,0.30)');
-      ctx.fillStyle = beam;
-      ctx.fillRect(p.x - 6, p.y - 90, 12, 90);
+      ctx.drawImage(vbeamSprite('34,211,238', 12, 90, 0.30), p.x - 6, p.y - 90);
       ctx.restore();
       const pulse = 1 + 0.12 * Math.sin(time * 3 + c.x);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const grad = ctx.createRadialGradient(p.x, p.y - 12 + bob, 1, p.x, p.y - 12 + bob, 22);
-      grad.addColorStop(0, 'rgba(255,255,255,0.95)');
-      grad.addColorStop(0.35, 'rgba(34,211,238,0.7)');
-      grad.addColorStop(1, 'rgba(34,211,238,0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y - 12 + bob, 22, 0, Math.PI * 2);
-      ctx.fill();
+      drawGlow(ctx, glowSprite('#22d3ee', { white: true }), p.x, p.y - 12 + bob, 22);
       ctx.restore();
       ctx.fillStyle = '#22d3ee';
       ctx.beginPath();
@@ -788,14 +796,10 @@ export function drawEntities(ctx, G, time) {
       const pulse = 0.6 + 0.4 * Math.sin(time * 3);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const grad = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 34);
-      grad.addColorStop(0, `rgba(255,255,255,${e.open ? 0.9 * pulse : 0.2})`);
-      grad.addColorStop(0.4, `rgba(251,191,36,${e.open ? 0.55 * pulse : 0.1})`);
-      grad.addColorStop(1, 'rgba(251,191,36,0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 34, 0, Math.PI * 2);
-      ctx.fill();
+      // Same white→gold profile as before, baked into a sprite; the live
+      // pulse is just globalAlpha (open: pulse, locked: ~0.22).
+      ctx.globalAlpha = e.open ? pulse : 0.22;
+      drawGlow(ctx, glowSprite('#fbbf24', { white: true, mid: 0.4, midA: 0.55 }), p.x, p.y, 34);
       ctx.restore();
       ctx.strokeStyle = e.open ? `rgba(251,191,36,${0.9 * pulse})` : '#94a3b8';
       ctx.lineWidth = 3;
@@ -813,14 +817,7 @@ export function drawEntities(ctx, G, time) {
       const bob = Math.sin(time * 2) * 3;
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const grad = ctx.createRadialGradient(p.x, p.y - 10 + bob, 2, p.x, p.y - 10 + bob, 30);
-      grad.addColorStop(0, 'rgba(255,255,255,0.95)');
-      grad.addColorStop(0.35, 'rgba(217,70,239,0.7)');
-      grad.addColorStop(1, 'rgba(217,70,239,0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y - 10 + bob, 30, 0, Math.PI * 2);
-      ctx.fill();
+      drawGlow(ctx, glowSprite('#d946ef', { white: true }), p.x, p.y - 10 + bob, 30);
       ctx.restore();
       ctx.fillStyle = '#fbbf24';
       ctx.beginPath();
@@ -970,6 +967,26 @@ function hpBar(ctx, x, y, w, frac, color) {
   ctx.fill();
 }
 
+// Summarize a recording's samples into 96 pixel columns (cached on the
+// recording — a finished recording never changes). The HUD bar is 96px
+// wide, so one column per pixel is all the eye can see; the raw recording
+// holds ~480 samples, most of which land on the same pixel.
+function waveformCols(rec, duration) {
+  if (rec._cols) return rec._cols;
+  const cols = new Array(96).fill(null);
+  for (const s of rec.samples) {
+    if (s.t > duration) continue;
+    const k = Math.min(95, Math.floor((s.t / duration) * 96));
+    const sp = Math.min(1, Math.hypot(s.vx, s.vy) / 300);
+    const c = cols[k] || (cols[k] = { sp: 0, dash: false, shield: false });
+    if (sp > c.sp) c.sp = sp;
+    if (s.dash) c.dash = true;
+    if (s.shield) c.shield = true;
+  }
+  rec._cols = cols;
+  return cols;
+}
+
 export function drawHUD(ctx, G, time) {
   const st = G.state;
   const S = G.stage;
@@ -1031,17 +1048,20 @@ export function drawHUD(ctx, G, time) {
     ctx.fillStyle = 'rgba(148,163,184,0.18)';
     ctx.fillRect(bx, y - 5, bw, 10);
     if (r.rec) {
-      // Waveform: bar height from recorded speed; marks where actions fired.
-      for (const s of r.rec.samples) {
-        if (s.t > G.loopDuration) continue;
-        const px = bx + (s.t / G.loopDuration) * bw;
-        const sp = Math.min(1, Math.hypot(s.vx, s.vy) / 300);
-        ctx.fillStyle = r.color;
+      // Waveform: one bar per pixel column (96), summarized once per
+      // recording. Bar height = max speed in the column; white ticks mark
+      // dash / shield actions in it.
+      const cols = waveformCols(r.rec, G.loopDuration);
+      for (let k = 0; k < cols.length; k++) {
+        const col = cols[k];
+        if (!col) continue;
+        const px = bx + (k / cols.length) * bw;
         ctx.globalAlpha = 0.85;
-        ctx.fillRect(px, y - 5 + (1 - sp) * 5, 1.5, 10 * sp + 1);
+        ctx.fillStyle = r.color;
+        ctx.fillRect(px, y - 5 + (1 - col.sp) * 5, 1.5, 10 * col.sp + 1);
         ctx.globalAlpha = 1;
-        if (s.dash) { ctx.fillStyle = '#fff'; ctx.fillRect(px - 1, y - 8, 3, 3); }
-        if (s.shield) { ctx.fillStyle = '#fff'; ctx.fillRect(px - 1, y + 5, 3, 3); }
+        if (col.dash) { ctx.fillStyle = '#fff'; ctx.fillRect(px - 1, y - 8, 3, 3); }
+        if (col.shield) { ctx.fillStyle = '#fff'; ctx.fillRect(px - 1, y + 5, 3, 3); }
       }
       // Playhead.
       ctx.strokeStyle = '#fff';
@@ -1223,29 +1243,43 @@ export function drawAbilityIcon(ctx, icon, x, y, color) {
 // --- Screens -------------------------------------------------------------------
 // Title: compact transparent gilded logo + 3-panel HOW TO PLAY strip at the
 // bottom. The live heist stays visible around it — never a full-screen box.
-export function drawTitle(ctx, G, time) {
-  ctx.save();
-  // Soft top scrim so the logo reads, floor still visible.
-  const scrim = ctx.createLinearGradient(0, 0, 0, 240);
+// The title header (scrim + gilded logo + tagline) is identical every
+// frame, but its shadowBlur text is one of the slowest draws on the title
+// screen — paint it once and stamp it.
+let titleHeader = null;
+function titleHeaderSprite() {
+  if (titleHeader) return titleHeader;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = 240;
+  const x = c.getContext('2d');
+  const scrim = x.createLinearGradient(0, 0, 0, 240);
   scrim.addColorStop(0, 'rgba(5,7,13,0.55)');
   scrim.addColorStop(1, 'rgba(5,7,13,0)');
-  ctx.fillStyle = scrim;
-  ctx.fillRect(0, 0, W, 240);
-  // Gilded logo.
+  x.fillStyle = scrim;
+  x.fillRect(0, 0, W, 240);
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.shadowColor = 'rgba(251,191,36,0.8)';
+  x.shadowBlur = 18;
+  x.font = 'bold 64px Georgia, serif';
+  x.fillStyle = '#fbbf24';
+  x.fillText('ECHO VAULT', 640, 108);
+  x.shadowBlur = 0;
+  x.font = 'bold 20px Georgia, serif';
+  x.fillStyle = '#22d3ee';
+  x.fillText('— Break Time. Steal Everything. —', 640, 152);
+  x.font = '15px Georgia, serif';
+  x.fillStyle = '#cbd5e1';
+  x.fillText('Eight seconds a loop. Four past selves. One impossible heist.', 640, 184);
+  titleHeader = c;
+  return c;
+}
+
+export function drawTitle(ctx, G, time) {
+  ctx.save();
+  ctx.drawImage(titleHeaderSprite(), 0, 0);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(251,191,36,0.8)';
-  ctx.shadowBlur = 18;
-  ctx.font = 'bold 64px Georgia, serif';
-  ctx.fillStyle = '#fbbf24';
-  ctx.fillText('ECHO VAULT', 640, 108);
-  ctx.shadowBlur = 0;
-  ctx.font = 'bold 20px Georgia, serif';
-  ctx.fillStyle = '#22d3ee';
-  ctx.fillText('— Break Time. Steal Everything. —', 640, 152);
-  ctx.font = '15px Georgia, serif';
-  ctx.fillStyle = '#cbd5e1';
-  ctx.fillText('Eight seconds a loop. Four past selves. One impossible heist.', 640, 184);
   // 3-panel HOW TO PLAY strip (bottom, never blocking the center table).
   const panels = [
     { n: '1', title: 'MOVE & STEAL', body: 'WASD to move. Stand at a glass pod to extract its Core.', icon: 'move' },
@@ -1329,23 +1363,39 @@ function wrapText(ctx, s, x, y, maxW, lh) {
   if (line) ctx.fillText(line, x, yy);
 }
 
+// The draft header is identical for a given stage; its shadowBlur title is
+// painted once per stage instead of every frame.
+const draftHeaders = new Map();
+function draftHeaderSprite(stage) {
+  const hit = draftHeaders.get(stage);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = 160;
+  const x = c.getContext('2d');
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.shadowColor = 'rgba(251,191,36,0.7)';
+  x.shadowBlur = 14;
+  x.font = 'bold 34px Georgia, serif';
+  x.fillStyle = '#fbbf24';
+  x.fillText('CHOOSE AN UPGRADE — PICK 1 OF 3', 640, 92);
+  x.shadowBlur = 0;
+  x.font = '15px Georgia, serif';
+  x.fillStyle = '#cbd5e1';
+  x.fillText(`Vault ${stage} cleared! Your new Chrono-Mod joins the network at once.`, 640, 126);
+  draftHeaders.set(stage, c);
+  return c;
+}
+
 // Draft: CHOOSE AN UPGRADE — PICK 1 OF 3.
 export function drawDraft(ctx, G) {
   const st = G.state;
   ctx.save();
   ctx.fillStyle = 'rgba(5,7,13,0.72)';
   ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(draftHeaderSprite(st.stage), 0, 0);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(251,191,36,0.7)';
-  ctx.shadowBlur = 14;
-  ctx.font = 'bold 34px Georgia, serif';
-  ctx.fillStyle = '#fbbf24';
-  ctx.fillText('CHOOSE AN UPGRADE — PICK 1 OF 3', 640, 92);
-  ctx.shadowBlur = 0;
-  ctx.font = '15px Georgia, serif';
-  ctx.fillStyle = '#cbd5e1';
-  ctx.fillText(`Vault ${st.stage} cleared! Your new Chrono-Mod joins the network at once.`, 640, 126);
   st.draft.forEach((m, i) => {
     const x = 640 - 3 * 140 + i * 290 + 15, y = 168, w = 260, h = 330;
     ctx.fillStyle = 'rgba(10,14,26,0.92)';
@@ -1431,6 +1481,29 @@ export function drawModIcon(ctx, icon, x, y, color) {
   ctx.restore();
 }
 
+// The victory header is identical every frame; its shadowBlur title is
+// painted once and stamped inside the modal.
+let victoryHeader = null;
+function victoryHeaderSprite() {
+  if (victoryHeader) return victoryHeader;
+  const c = document.createElement('canvas');
+  c.width = 580; c.height = 120;
+  const x = c.getContext('2d');
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.shadowColor = 'rgba(251,191,36,0.8)';
+  x.shadowBlur = 16;
+  x.font = 'bold 36px Georgia, serif';
+  x.fillStyle = GOLD;
+  x.fillText('HEIST COMPLETE', 290, 44);
+  x.shadowBlur = 0;
+  x.font = '15px Georgia, serif';
+  x.fillStyle = '#22d3ee';
+  x.fillText('The Omega Core is yours. The vault wakes to empty shelves.', 290, 76);
+  victoryHeader = c;
+  return c;
+}
+
 // Victory: HEIST COMPLETE — RANK S, breakdown, replay.
 export function drawVictory(ctx, G) {
   const st = G.state;
@@ -1445,17 +1518,9 @@ export function drawVictory(ctx, G) {
   ctx.strokeStyle = GOLD;
   ctx.lineWidth = 2.5;
   ctx.stroke();
+  ctx.drawImage(victoryHeaderSprite(), bx, by);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(251,191,36,0.8)';
-  ctx.shadowBlur = 16;
-  ctx.font = 'bold 36px Georgia, serif';
-  ctx.fillStyle = GOLD;
-  ctx.fillText('HEIST COMPLETE', 640, by + 44);
-  ctx.shadowBlur = 0;
-  ctx.font = '15px Georgia, serif';
-  ctx.fillStyle = '#22d3ee';
-  ctx.fillText('The Omega Core is yours. The vault wakes to empty shelves.', 640, by + 76);
   // Rank S medal.
   ctx.beginPath();
   ctx.arc(640, by + 142, 38, 0, Math.PI * 2);

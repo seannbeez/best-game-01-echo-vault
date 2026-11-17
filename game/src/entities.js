@@ -8,6 +8,7 @@ import {
   CORE_CHANNEL_TIME, WARDEN_VULN_TIME, clamp, dist,
 } from './config.js';
 import { iso, isoShadow, screenToWorld } from './iso.js';
+import { glowSprite, drawGlow, coneSprite } from './glow.js';
 
 export function createPlayer(spawn) {
   return {
@@ -349,16 +350,11 @@ export function drawThief(ctx, x, y, color, opts = {}) {
     ctx.stroke();
     ctx.globalAlpha = alpha;
   }
-  // Additive halo behind the hood: the figure glows against the dark floor.
+  // Additive halo behind the hood: the figure glows against the dark floor
+  // (pre-rendered glow sprite, same color-only fade as the old gradient).
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  const halo = ctx.createRadialGradient(top.x, top.y - 4, 1, top.x, top.y - 4, 20);
-  halo.addColorStop(0, color + '44');
-  halo.addColorStop(1, color + '00');
-  ctx.fillStyle = halo;
-  ctx.beginPath();
-  ctx.arc(top.x, top.y - 4, 20, 0, Math.PI * 2);
-  ctx.fill();
+  drawGlow(ctx, glowSprite(color), top.x, top.y - 4, 20);
   ctx.restore();
   // Cloak body: tapered torso from the floor diamond up to the hood.
   ctx.fillStyle = '#1b2340';
@@ -446,34 +442,18 @@ export function drawTurret(ctx, t, time) {
   // Sentry vision cone (additive) along the aim direction: a wide faint
   // sweep plus a narrower hot core, so the cone reads at a glance.
   if (t.disabledT <= 0) {
+    // Pre-rendered cone wedges, rotated toward the aim: same shape and fade
+    // as the old gradient triangles, stamped with drawImage.
+    const dx = aim.x - c.x, dy = aim.y - c.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const s = len / 252;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    const spread = 0.28;
-    const e1 = iso(t.x + Math.cos(t.angle + spread) * t.range, t.y + Math.sin(t.angle + spread) * t.range);
-    const e2 = iso(t.x + Math.cos(t.angle - spread) * t.range, t.y + Math.sin(t.angle - spread) * t.range);
-    const cone = ctx.createLinearGradient(c.x, c.y, aim.x, aim.y);
-    cone.addColorStop(0, 'rgba(239,68,68,0.32)');
-    cone.addColorStop(1, 'rgba(239,68,68,0)');
-    ctx.fillStyle = cone;
-    ctx.beginPath();
-    ctx.moveTo(c.x, c.y - 14);
-    ctx.lineTo(e1.x, e1.y);
-    ctx.lineTo(e2.x, e2.y);
-    ctx.closePath();
-    ctx.fill();
-    const spread2 = 0.13;
-    const f1 = iso(t.x + Math.cos(t.angle + spread2) * t.range, t.y + Math.sin(t.angle + spread2) * t.range);
-    const f2 = iso(t.x + Math.cos(t.angle - spread2) * t.range, t.y + Math.sin(t.angle - spread2) * t.range);
-    const cone2 = ctx.createLinearGradient(c.x, c.y, aim.x, aim.y);
-    cone2.addColorStop(0, 'rgba(251,146,60,0.30)');
-    cone2.addColorStop(1, 'rgba(251,146,60,0)');
-    ctx.fillStyle = cone2;
-    ctx.beginPath();
-    ctx.moveTo(c.x, c.y - 14);
-    ctx.lineTo(f1.x, f1.y);
-    ctx.lineTo(f2.x, f2.y);
-    ctx.closePath();
-    ctx.fill();
+    ctx.translate(c.x, c.y - 14);
+    ctx.rotate(Math.atan2(dy, dx));
+    ctx.scale(s, s);
+    ctx.drawImage(coneSprite('239,68,68', 0.32, 0.28), -2, -80);
+    ctx.drawImage(coneSprite('251,146,60', 0.30, 0.13), -2, -80);
     ctx.restore();
   }
   // Telegraph dashed line while aiming.
@@ -688,13 +668,7 @@ export function drawWarden(ctx, w, time) {
   const eye = w.shield ? '#fbbf24' : '#ef4444';
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  const eg = ctx.createRadialGradient(top.x, top.y, 1, top.x, top.y, 26);
-  eg.addColorStop(0, eye);
-  eg.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = eg;
-  ctx.beginPath();
-  ctx.arc(top.x, top.y, 26, 0, Math.PI * 2);
-  ctx.fill();
+  drawGlow(ctx, glowSprite(eye, { a0: 1 }), top.x, top.y, 26);
   ctx.restore();
   ctx.fillStyle = eye;
   ctx.beginPath();
