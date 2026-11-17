@@ -1261,13 +1261,13 @@ export function drawHUD(ctx, G, time) {
   pill(ctx, 12, 656, 150, 34, 'rgba(10,14,26,0.9)', 'rgba(251,191,36,0.6)');
   text(ctx, `SYNC COMBO x${st.combo.toFixed(2)}`, 87, 673, 'bold 14px Georgia, serif', GOLD);
   ctx.beginPath();
-  ctx.arc(1064, 673, 24, 0, Math.PI * 2);
+  ctx.arc(1064, 673, 28, 0, Math.PI * 2);
   ctx.fillStyle = st.grade === 'S' ? '#fbbf24' : st.grade === 'A' ? '#c9d1e3' : '#b45309';
   ctx.fill();
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = 2;
   ctx.stroke();
-  text(ctx, 'GRADE ' + st.grade, 1064, 673, 'bold 11px Georgia, serif', '#0b1020');
+  text(ctx, 'GRADE ' + st.grade, 1064, 673, 'bold 9px Georgia, serif', '#0b1020');
   ctx.restore();
 
   // --- Vault Radar (bottom-right) ---
@@ -1366,6 +1366,13 @@ function titleHeaderSprite() {
   x.fillText('ECHO VAULT', 640, 108);
   x.shadowBlur = 0;
   x.font = 'bold 20px Georgia, serif';
+  // Dark translucent pill behind the subtitle (text is 309px wide) so it
+  // reads 100% sharp on the bright floor; fully backs the text incl.
+  // descenders, with clear space to the tagline pill below.
+  x.fillStyle = 'rgba(5,7,13,0.82)';
+  x.beginPath();
+  x.roundRect(640 - 190, 136, 380, 36, 18);
+  x.fill();
   x.fillStyle = '#22d3ee';
   x.fillText('— Break Time. Steal Everything. —', 640, 152);
   // The sub-tagline sits over the bright floor (the arena's far edge is
@@ -1373,11 +1380,11 @@ function titleHeaderSprite() {
   // text on the light floor would be invisible without one.
   x.fillStyle = 'rgba(5,7,13,0.82)';
   x.beginPath();
-  x.roundRect(640 - 250, 168, 500, 30, 15);
+  x.roundRect(640 - 250, 178, 500, 30, 15);
   x.fill();
   x.font = '15px Georgia, serif';
   x.fillStyle = '#cbd5e1';
-  x.fillText('Eight seconds a loop. Four past selves. One impossible heist.', 640, 184);
+  x.fillText('Eight seconds a loop. Four past selves. One impossible heist.', 640, 194);
   titleHeader = c;
   return c;
 }
