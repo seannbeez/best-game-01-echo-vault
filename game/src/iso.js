@@ -1,18 +1,4 @@
 // True perspective camera for the mini-3D renderer (branch mini3d).
-// Replaces the 2:1 orthographic iso projection. The camera looks north
-// from the south, down at ~50 deg (eye raised from the v1 40 deg: a
-// steeper downward view FLATTENS the perspective — weaker vanishing-point
-// convergence, taller floor band, shorter walls — which is what reads as
-// calm instead of dizzying). Vertical exaggeration (ZS) makes walls, props
-// and the Warden read as tall structures instead of a flat diamond. All
-// call sites keep the old signatures: iso(x, y, z) -> screen {x, y, d},
-// screenToWorld(sx, sy) -> logical {x, y}, depthOf(x, y) -> a sort key
-// where larger = nearer (far items drawn first), isoDiamond / extrudeBox /
-// isoShadow draw in screen space from projected corners. extrudeBox keeps
-// the old convention: (x, y) is the footprint's north-west corner, w/h the
-// logical footprint, z the height.
-export const ISO_S = 0.78; // kept for compatibility; no longer used
-
 const CX = 640, CY = 360, F = 1900;
 const EX = 640, EY = 355 + 950, EZ = 1150; // camera eye
 const ZS = 1.6; // vertical exaggeration for z heights
@@ -40,7 +26,6 @@ export function iso(x, y, z = 0) {
 }
 
 // Inverse of iso() at z = 0: the ray through a screen pixel, intersected
-// with the ground plane. Exact (verified: round-trip error ~0).
 export function screenToWorld(sx, sy) {
   const ax = (sx - CX) / F, ay = (CY - sy) / F;
   const dx = R[0] * ax + U[0] * ay + FWD[0];
@@ -75,7 +60,6 @@ export function isoDiamond(ctx, x, y, hw, hh, fill, stroke) {
 }
 
 // A ground circle seen through the perspective camera: project the centre
-// and the two axis points so the ellipse foreshortens correctly.
 export function groundEllipse(ctx, x, y, r, fill, stroke, lw = 2) {
   const c = iso(x, y);
   const px = iso(x + r, y);
@@ -97,10 +81,6 @@ export function groundEllipse(ctx, x, y, r, fill, stroke, lw = 2) {
 }
 
 // A 3D box: (x, y) is the footprint's north-west corner, w/h the logical
-// footprint, z the height. Draws the faces the camera can see: the south
-// face (toward the camera, `left` colour), the east or west side face
-// depending on which side of the camera's centre line the box sits
-// (`right` colour), and the top.
 export function extrudeBox(ctx, x, y, w, h, z, top, left, right) {
   const bSW = iso(x, y + h), bSE = iso(x + w, y + h);
   const bNW = iso(x, y), bNE = iso(x + w, y);
@@ -117,7 +97,6 @@ export function extrudeBox(ctx, x, y, w, h, z, top, left, right) {
     ctx.fill();
   };
   // Side face toward the camera's x side: the east face when the box is
-  // west of the centre line, the west face when it is east of it.
   const cx = x + w / 2;
   if (cx < CX - w) quad(bNE, bSE, tSE, tNE, right);
   else if (cx > CX + w) quad(bSW, bNW, tNW, tSW, right);
@@ -128,8 +107,6 @@ export function extrudeBox(ctx, x, y, w, h, z, top, left, right) {
 }
 
 // A long, soft directional drop-shadow for an object standing at (x, y):
-// a dense core ellipse plus a fainter, farther tail — the light rakes in
-// from the upper-left, so every shadow stretches down-right.
 export function isoShadow(ctx, x, y, rx, ry, alpha = 0.45) {
   const c = iso(x, y);
   const px = iso(x + rx, y);

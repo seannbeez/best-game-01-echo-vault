@@ -1,8 +1,4 @@
 // ECHO VAULT — Time Echo recording and replay. One clear job: an Echo is a
-// faithful recording of one loop — the player's exact path, velocity and
-// actions, sampled every frame — replayed verbatim in later loops. Nothing
-// here is scripted: if the player stood on a plate, the Echo stands on it;
-// if the player dashed, the Echo dashes at the same moment.
 import { ECHO_COLORS, MAX_ECHOES } from './config.js';
 
 export class EchoRecorder {
@@ -83,7 +79,6 @@ export class Echo {
   }
 
   // Where this Echo is about to go: a dotted predictive path from its
-  // recording, so the player can plan around it.
   futurePath(t, horizon = 1.2, step = 0.12) {
     const pts = [];
     for (let f = 0; f <= horizon; f += step) {

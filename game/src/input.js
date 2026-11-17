@@ -1,6 +1,4 @@
 // ECHO VAULT — input: keyboard, mouse and touch. One clear job: turn raw
-// device events into a small, testable input state (move vector, pressed
-// edges, pointer position) that main.js reads each frame.
 export class Input {
   constructor(canvas) {
     this.canvas = canvas;

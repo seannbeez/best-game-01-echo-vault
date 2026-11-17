@@ -1,7 +1,5 @@
 // ECHO VAULT — all drawing: the full-bleed vault floor, props, entities,
-// floating HUD, and the title / draft / victory / defeat screens.
-// One clear job: turn game state into pixels. No logic lives here.
-import { W, H, ARENA, ECHO_COLORS, clamp, lerp, hash01 } from './config.js';
+import { W, H, ARENA, ECHO_COLORS, clamp, hash01, THREATS, FEATS } from './config.js';
 import { STAGE_NAMES } from './levels.js';
 import { iso, screenToWorld, isoDiamond, extrudeBox, isoShadow, depthOf, groundEllipse } from './iso.js';
 import { drawThief, drawTurret, drawWarden, segDist } from './entities.js';
@@ -31,14 +29,6 @@ function text(ctx, s, x, y, font, color, align = 'center', baseline = 'middle') 
 }
 
 // --- Floor ------------------------------------------------------------------
-// The diorama floats over a deep dark-teal/obsidian abyss with a faint
-// holographic circuit grid. The vault floor itself is an isometric diamond
-// of brushed steel tiles with glowing conduits and a glossy sheen.
-// The static diorama never changes between frames (its animated bits —
-// pulsing circuit nodes, drifting dust, conduit sparks — are drawn live on
-// top), so it is painted ONCE into an offscreen canvas and stamped with
-// drawImage. That is the single biggest per-frame saving: ~70 tile
-// diamonds + 110 circuit crosses + 8 spotlight gradients become one blit.
 let floorCache = null;
 function drawFloorStatic(ctx) {
   // Abyss.
@@ -49,9 +39,6 @@ function drawFloorStatic(ctx) {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
   // Holographic circuit grid (dense, Timelie-style): cyan '+' crosses and
-  // right-angle corner traces scattered over the abyss, a few pulsing nodes,
-  // and slow-drifting dust motes. All positions are deterministic (hash01),
-  // so the abyss is stable frame to frame.
   ctx.save();
   ctx.strokeStyle = 'rgba(34,211,238,0.08)';
   ctx.lineWidth = 1;
@@ -115,39 +102,30 @@ function drawFloorStatic(ctx) {
   ctx.closePath();
   ctx.fill();
   // Floor base: the whole arena diamond filled solid FIRST. The tile
-  // diamonds are rotated squares on a 92-grid, so they leave small
-  // diamond gaps at the grid intersections — without a base those gaps
-  // show the black abyss as a harsh checkerboard. The base is the mid
-  // tile tone, so the gaps read as a fourth quiet tone, not holes.
-  ctx.fillStyle = '#aeb9c9';
+  ctx.fillStyle = '#2e3a52';
   ctx.beginPath();
   corners.forEach((c, i) => (i === 0 ? ctx.moveTo(c.x, c.y) : ctx.lineTo(c.x, c.y)));
   ctx.closePath();
   ctx.fill();
-  // BRIGHT lab floor: clean cool-slate / ice-cyan tiles (#94a3b8 to
-  // #cbd5e1) with crisp dark seams, so dark walls, characters and red/cyan
-  // beams pop with razor-sharp contrast. Tile tones stay close together
-  // (no vibration at thumbnail size); the seams carry the structure.
+  // DARK slate floor: deep blue-slate tiles (#2f3a52 to #4a5878) with
   const ts = 92;
   for (let ty = 0; ty < ARENA.h / ts; ty++) {
     for (let tx = 0; tx < ARENA.w / ts; tx++) {
       const cx = ARENA.x + tx * ts + ts / 2;
       const cy = ARENA.y + ty * ts + ts / 2;
       const shade = ((tx * 7 + ty * 13) % 3);
-      const fill = shade === 0 ? '#aeb9c9' : shade === 1 ? '#94a3b8' : '#cbd5e1';
-      isoDiamond(ctx, cx, cy, ts / 2, ts / 2, fill, 'rgba(51,65,85,0.55)');
+      const fill = shade === 0 ? '#3a4763' : shade === 1 ? '#2f3a52' : '#4a5878';
+      isoDiamond(ctx, cx, cy, ts / 2, ts / 2, fill, 'rgba(148,163,184,0.35)');
       // Projected tile corners (perspective): rivets and edge light sit on
-      // the tile's real corners, not on fixed screen offsets.
       const cn = iso(cx, cy - ts / 2), ce = iso(cx + ts / 2, cy);
       const cs = iso(cx, cy + ts / 2), cw = iso(cx - ts / 2, cy);
       const p = iso(cx, cy);
       // Rivets at the four diamond corners.
-      ctx.fillStyle = 'rgba(30,41,59,0.45)';
+      ctx.fillStyle = 'rgba(226,232,240,0.35)';
       for (const corner of [cn, ce, cs, cw]) {
         ctx.fillRect(corner.x - 1, corner.y - 1, 2, 2);
       }
       // Edge-lit panel: one glowing edge per chosen tile — more of them in
-      // the middle band, so the diorama's center reads as lit, not empty.
       const lit = hash01(tx * 13.7 + ty * 7.3 + 0.5);
       if (lit < (ty >= 2 && ty <= 4 ? 0.34 : 0.14)) {
         ctx.strokeStyle = lit < 0.07 ? 'rgba(8,145,178,0.65)' : 'rgba(180,83,9,0.6)';
@@ -172,7 +150,6 @@ function drawFloorStatic(ctx) {
     }
   }
   // Glowing floor conduits along the tile seams (deep gold / deep cyan so
-  // they read on the bright floor).
   ctx.save();
   ctx.strokeStyle = 'rgba(180,83,9,0.7)';
   ctx.lineWidth = 2.5;
@@ -195,7 +172,6 @@ function drawFloorStatic(ctx) {
   ctx.stroke();
   ctx.restore();
   // Crossing conduits through the middle: a gold spine along logical y=355
-  // and a cyan spine along logical x=640, meeting at the central seal.
   ctx.save();
   ctx.strokeStyle = 'rgba(180,83,9,0.65)';
   ctx.lineWidth = 2.5;
@@ -212,8 +188,6 @@ function drawFloorStatic(ctx) {
   ctx.stroke();
   ctx.restore();
   // Central vault seal: concentric glowing rings + hazard chevrons on the
-  // floor plane, marking the heart of the vault. Flat floor art (painted
-  // into the cache), so it can never cover a plate, core, or character.
   const sc = iso(ARENA.x + ARENA.w / 2, ARENA.y + ARENA.h / 2);
   const sg = ctx.createRadialGradient(sc.x, sc.y, 10, sc.x, sc.y, 170);
   sg.addColorStop(0, 'rgba(8,145,178,0.12)');
@@ -221,7 +195,6 @@ function drawFloorStatic(ctx) {
   ctx.fillStyle = sg;
   ctx.fillRect(sc.x - 170, sc.y - 110, 340, 220);
   // Concentric rings as projected ground circles (foreshortened ellipses
-  // under the perspective camera), not flat diamonds.
   const sealRing = (r, color, lw) => groundEllipse(ctx, 640, 355, r, null, color, lw);
   sealRing(130, 'rgba(180,83,9,0.85)', 4.5);
   sealRing(96, 'rgba(8,145,178,0.85)', 3);
@@ -258,7 +231,6 @@ function drawFloorStatic(ctx) {
   ctx.closePath();
   ctx.stroke();
   // Glossy sheen sweeping the floor (subtle now — the floor is already
-  // bright), plus a soft central glow.
   ctx.save();
   const sheen = ctx.createLinearGradient(200, 80, 1080, 640);
   sheen.addColorStop(0, 'rgba(255,255,255,0.05)');
@@ -279,7 +251,6 @@ function drawFloorStatic(ctx) {
   ctx.fillRect(cc.x - 420, cc.y - 260, 840, 520);
   ctx.restore();
   // Volumetric spotlight cones from the ceiling (additive), with warm
-  // light pools where they land on the floor.
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for (const [sx, col, a0] of [[360, '255,240,200', 0.16], [640, '255,240,200', 0.16], [920, '255,240,200', 0.16], [780, '251,191,36', 0.10]]) {
@@ -312,8 +283,6 @@ function drawFloorStatic(ctx) {
 }
 
 // The live floor: one blit of the cached static diorama, then only the
-// animated bits — pulsing circuit nodes, drifting dust motes, conduit
-// sparks — drawn on top.
 export function drawFloor(ctx, G, time) {
   if (!floorCache) {
     floorCache = document.createElement('canvas');
@@ -349,14 +318,9 @@ export function drawFloor(ctx, G, time) {
 }
 
 // --- Flat world decals ------------------------------------------------------
-// Flat things that live ON the floor plane: jammer fields, mirror decals,
-// and the additive security laser beams + sweepers. Everything with height
-// (walls, glass, plates, doors, mines, terminals, cores, exit, Omega Core,
-// turrets, Warden) is drawn depth-sorted in drawEntities.
 export function drawProps(ctx, G, time) {
   const S = G.stage;
   // Jammer fields: translucent projected ground ellipses with rotating
-  // dashed rings (a ground circle foreshortens under the camera).
   for (const j of S.jammers) {
     const c = iso(j.x, j.y);
     const px = iso(j.x + j.r, j.y);
@@ -404,11 +368,9 @@ export function drawProps(ctx, G, time) {
     ctx.lineTo(e.x, e.y);
     ctx.stroke();
     ctx.restore();
-    text(ctx, 'REFLECTOR', c.x, c.y + 22, 'bold 9px Georgia, serif', 'rgba(30,41,59,0.85)');
+    text(ctx, 'REFLECTOR', c.x, c.y + 22, 'bold 9px Georgia, serif', 'rgba(226,232,240,0.85)');
   }
   // Laser grids: razor-sharp crimson beams floating just above the floor
-  // (z = 16), additive, with glowing emitter pillars rising from the
-  // floor at each end.
   for (const l of S.lasers) {
     const a = iso(l.x1, l.y1, 16);
     const b = iso(l.x2, l.y2, 16);
@@ -440,7 +402,6 @@ export function drawProps(ctx, G, time) {
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     // Emitter pillars (pre-rendered beam sprite, alpha = live pulse):
-    // anchored on the floor, rising past the beam.
     ctx.save();
     ctx.globalAlpha = tw;
     const pillar = vbeamSprite('239,68,68', 6, 60, 0.65);
@@ -481,12 +442,6 @@ export function drawProps(ctx, G, time) {
 }
 
 // --- Vault furniture (procedural props) -------------------------------------
-// Crates, consoles, barrels and vents placed on FREE floor cells only: every
-// candidate tile center is rejected if it is near a plate, core, terminal,
-// exit, spawn, mine, turret, the Warden, a laser line, a wall/door, a jammer
-// or a sweeper path — so no prop ever covers an objective or blocks a route.
-// Candidates hug the chamber walls (like real vault furniture). The list is
-// cached per stage object and purely visual: props have no collision.
 const propCache = new WeakMap();
 function getProps(S) {
   const cached = propCache.get(S);
@@ -592,14 +547,6 @@ function drawProp(ctx, p, time) {
 }
 
 // --- Depth-sorted world -----------------------------------------------------
-// Everything with height goes through one painter's pass: each drawable
-// carries a depth key (view depth from the perspective camera — larger is
-// nearer), the list is sorted, then drawn. That is what makes the 3D
-// diorama read as real depth: nearer walls and characters occlude farther
-// ones.
-// Reused across frames: the depth-sorted item list is rebuilt every frame,
-// but the array itself (and its closure objects) is the only per-frame
-// allocation left in the painter's pass — the sort is small (tens of items).
 const items = [];
 export function drawEntities(ctx, G, time) {
   const S = G.stage;
@@ -607,12 +554,9 @@ export function drawEntities(ctx, G, time) {
   const add = (x, y, f) => items.push({ d: depthOf(x, y), f });
 
   // Walls: extruded dark-slate slabs with height variation, a brass top
-  // edge, an inset top panel, vent slits on the tall face, and a gold base
-  // trim — the chamber reads as built architecture, not flat bars.
   for (const w of S.walls) {
     add(w.x + w.w / 2, w.y + w.h / 2, () => {
       // The south border wall is capped low: its face plus the slab edge
-      // was an ~85px dark band eating the frame; now it stays a thin edge.
       const isSouth = w.y >= ARENA.y + ARENA.h - 1;
       const wh = isSouth ? 26 : 42 + Math.floor(hash01(w.x * 0.13 + w.y * 0.29) * 3) * 14;
       extrudeBox(ctx, w.x, w.y, w.w, w.h, wh, '#2b3a55', '#1c2740', '#121a2c');
@@ -666,7 +610,6 @@ export function drawEntities(ctx, G, time) {
     });
   }
   // Glass partitions: translucent cyan extruded panels with dark frame
-  // posts, a gold top rail, and a diagonal glint.
   for (const gp of S.glass) {
     add(gp.x + gp.w / 2, gp.y + gp.h / 2, () => {
       extrudeBox(ctx, gp.x, gp.y, gp.w, gp.h, 34,
@@ -704,17 +647,15 @@ export function drawEntities(ctx, G, time) {
     add(p.x, p.y, () => drawProp(ctx, p, time));
   }
   // Pressure plates: glowing iso diamonds. A held plate rises as a vertical
-  // light pillar; on stage 7 the node plates are shield pylons linked to
-  // the Warden by magenta energy tethers.
   for (const p of S.plates) {
     add(p.x, p.y, () => {
       const held = p.heldBy;
       const col = held ? (held === 'you' ? '#e8ecff' : ECHO_COLORS[held] || '#34d399') : '#475569';
       // Glowing pressure-pad pedestal: a dark slate pad under the plate.
       groundEllipse(ctx, p.x, p.y, p.r + 8, '#1e293b', null);
-      isoDiamond(ctx, p.x, p.y, p.r, p.r, held ? 'rgba(52,211,153,0.30)' : 'rgba(30,41,59,0.18)', col);
+      isoDiamond(ctx, p.x, p.y, p.r, p.r, held ? 'rgba(52,211,153,0.30)' : 'rgba(148,163,184,0.25)', col);
       const c = iso(p.x, p.y);
-      ctx.fillStyle = held ? '#34d399' : '#1e293b';
+      ctx.fillStyle = held ? '#34d399' : '#cbd5e1';
       ctx.font = 'bold 13px Georgia, serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -834,7 +775,6 @@ export function drawEntities(ctx, G, time) {
     });
   }
   // Cores in glass containment pods: a glowing faceted diamond floating
-  // above a projected glass ellipse, with a channel progress ring.
   for (const c of S.cores) {
     if (c.taken) continue;
     add(c.x, c.y, () => {
@@ -890,12 +830,11 @@ export function drawEntities(ctx, G, time) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       // Same white→gold profile as before, baked into a sprite; the live
-      // pulse is just globalAlpha (open: pulse, locked: ~0.22).
       ctx.globalAlpha = e.open ? pulse : 0.22;
       drawGlow(ctx, glowSprite('#fbbf24', { white: true, mid: 0.4, midA: 0.55 }), p.x, p.y, 34);
       ctx.restore();
       groundEllipse(ctx, e.x, e.y, 24, null, e.open ? `rgba(251,191,36,${0.9 * pulse})` : '#475569', 3);
-      text(ctx, e.open ? 'EXIT' : 'LOCKED', p.x, p.y, 'bold 12px Georgia, serif', e.open ? '#34d399' : '#1e293b');
+      text(ctx, e.open ? 'EXIT' : 'LOCKED', p.x, p.y, 'bold 12px Georgia, serif', e.open ? '#34d399' : '#cbd5e1');
     });
   }
   // Omega Core (stage 7, after the Warden falls).
@@ -934,8 +873,6 @@ export function drawEntities(ctx, G, time) {
   for (const t of S.turrets) if (!t.dead) add(t.x, t.y, () => drawTurret(ctx, t, time));
   if (S.warden && S.warden.hp > 0) add(S.warden.x, S.warden.y, () => drawWarden(ctx, S.warden, time));
   // Echoes: glowing white/cyan timeline trajectory lines, trail ribbons,
-  // then the thief figure. Trajectory and figure share a depth key so the
-  // line always draws under its own echo.
   for (const e of G.echoes) {
     add(e.x, e.y, () => {
       for (const t of e.trail) {
@@ -1006,8 +943,6 @@ export function drawEntities(ctx, G, time) {
   items.sort((a, b) => a.d - b.d);
   for (const it of items) it.f();
   // Distance fog: the far end of the vault fades into slate haze, so the
-  // diorama reads as deep, not flat. Drawn after the world, before
-  // particles/callouts/HUD, so those stay crisp.
   const fog = ctx.createLinearGradient(0, 150, 0, 340);
   fog.addColorStop(0, 'rgba(15,23,42,0.20)');
   fog.addColorStop(1, 'rgba(15,23,42,0)');
@@ -1025,9 +960,6 @@ export function drawEntities(ctx, G, time) {
     ctx.restore();
   }
   // Comic callouts: solid dark pills with the event color as text, offset
-  // toward the upper corners/edges of the action — never piled on the
-  // characters or the boss. Only the 2 newest show; older ones decay out
-  // of the list. No radiating lines: the pill is the punctuation.
   const shown = G.callouts.slice(-2);
   shown.forEach((c, i) => {
     const a = Math.max(0, c.life / c.max);
@@ -1038,7 +970,6 @@ export function drawEntities(ctx, G, time) {
     const w = ctx.measureText(c.text).width + 28;
     const h = 30;
     // Fixed top-band slots: pills always sit clear of the boss, the
-    // characters and the side panels — never on top of the action.
     const px = i === 0 ? 360 : 920;
     const py = 140;
     ctx.fillStyle = 'rgba(8,12,24,0.95)';
@@ -1069,9 +1000,6 @@ function hpBar(ctx, x, y, w, frac, color) {
 }
 
 // Summarize a recording's samples into 96 pixel columns (cached on the
-// recording — a finished recording never changes). The HUD bar is 96px
-// wide, so one column per pixel is all the eye can see; the raw recording
-// holds ~480 samples, most of which land on the same pixel.
 function waveformCols(rec, duration) {
   if (rec._cols) return rec._cols;
   const cols = new Array(96).fill(null);
@@ -1127,8 +1055,12 @@ export function drawHUD(ctx, G, time) {
   text(ctx, 'INTEGRITY', cx - 300, cy - 16, 'bold 8px Georgia, serif', '#94a3b8');
   ctx.restore();
 
+  // WIN / LOSE pill, centered under the top bar: the run's win and lose
+  pill(ctx, cx - 150, 58, 300, 20, 'rgba(10,14,26,0.88)', 'rgba(251,191,36,0.4)');
+  text(ctx, 'WIN: SHATTER WARDEN', cx - 74, 68, 'bold 11px Georgia, serif', '#34d399');
+  text(ctx, 'LOSE: INTEGRITY 0', cx + 74, 68, 'bold 11px Georgia, serif', '#f87171');
+
   // --- Left panel: Active Echo Timeline + Chrono-Mods Held ---
-  // Height grows with the echo rows and the mods held, so nothing overflows.
   const rows = [{ label: 'YOU', color: '#e8ecff', rec: null }];
   for (const e of G.echoes) rows.push({ label: 'ECHO ' + (e.idx + 1), color: e.color, rec: e.recording });
   const leftH = 44 + rows.length * 26 + 24 + Math.max(1, st.mods.length) * 20 + 12;
@@ -1150,8 +1082,6 @@ export function drawHUD(ctx, G, time) {
     ctx.fillRect(bx, y - 5, bw, 10);
     if (r.rec) {
       // Waveform: one bar per pixel column (96), summarized once per
-      // recording. Bar height = max speed in the column; white ticks mark
-      // dash / shield actions in it.
       const cols = waveformCols(r.rec, G.loopDuration);
       for (let k = 0; k < cols.length; k++) {
         const col = cols[k];
@@ -1189,6 +1119,8 @@ export function drawHUD(ctx, G, time) {
     text(ctx, `${m.name} — ${m.tag}`, 40, y, '10px Georgia, serif', '#e8ecff', 'left');
   });
   if (st.mods.length === 0) text(ctx, 'No mods yet — clear a vault!', 98, 102 + rows.length * 26 + 28, '10px Georgia, serif', '#94a3b8', 'center');
+  // Chrono-Shards: the run's currency, banked at the victory workshop.
+  text(ctx, '◆ ' + st.shards + ' SHARDS', 98, 102 + rows.length * 26 + 28 + Math.max(1, st.mods.length) * 20, 'bold 11px Georgia, serif', GOLD, 'center');
   ctx.restore();
 
   // --- Right panel: Vault Security / Threat Queue ---
@@ -1341,11 +1273,6 @@ export function drawAbilityIcon(ctx, icon, x, y, color) {
 }
 
 // --- Screens -------------------------------------------------------------------
-// Title: compact transparent gilded logo + 3-panel HOW TO PLAY strip at the
-// bottom. The live heist stays visible around it — never a full-screen box.
-// The title header (scrim + gilded logo + tagline) is identical every
-// frame, but its shadowBlur text is one of the slowest draws on the title
-// screen — paint it once and stamp it.
 let titleHeader = null;
 function titleHeaderSprite() {
   if (titleHeader) return titleHeader;
@@ -1367,8 +1294,6 @@ function titleHeaderSprite() {
   x.shadowBlur = 0;
   x.font = 'bold 20px Georgia, serif';
   // Dark translucent pill behind the subtitle (text is 309px wide) so it
-  // reads 100% sharp on the bright floor; fully backs the text incl.
-  // descenders, with clear space to the tagline pill below.
   x.fillStyle = 'rgba(5,7,13,0.82)';
   x.beginPath();
   x.roundRect(640 - 190, 136, 380, 36, 18);
@@ -1376,8 +1301,6 @@ function titleHeaderSprite() {
   x.fillStyle = '#22d3ee';
   x.fillText('— Break Time. Steal Everything. —', 640, 152);
   // The sub-tagline sits over the bright floor (the arena's far edge is
-  // just below it now), so it gets a solid dark pill behind it — light
-  // text on the light floor would be invisible without one.
   x.fillStyle = 'rgba(5,7,13,0.82)';
   x.beginPath();
   x.roundRect(640 - 250, 178, 500, 30, 15);
@@ -1389,134 +1312,79 @@ function titleHeaderSprite() {
   return c;
 }
 
-// Title centerpiece (cached sprite): a glass containment column with a
-// glowing core, two low glass partitions, and floor furniture in the middle
-// of the diorama — painted once, stamped UNDER the demo echoes (in
-// drawAttract, before their paths) so it never covers an echo, a tag, or
-// the stage-1 laser. Title screen only; zero per-frame cost beyond one blit.
-let titleCenterpiece = null;
-function titleCenterpieceSprite() {
-  if (titleCenterpiece) return titleCenterpiece;
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const x = c.getContext('2d');
-  // Glass containment column at logical (640,430): extruded glass with a
-  // gold top rail and a glowing cyan core. Under the perspective camera it
-  // lands mid-diorama (base ~y 405, top ~y 330) — clear of the logo, the
-  // HOW TO PLAY panels (y 428+), and the stage-1 laser (y ~460).
-  isoShadow(x, 640, 430, 22, 11, 0.4);
-  extrudeBox(x, 628, 418, 24, 24, 64,
-    'rgba(103,232,249,0.32)', 'rgba(103,232,249,0.18)', 'rgba(103,232,249,0.10)');
-  const ct1 = iso(628, 418, 64);
-  const ct2 = iso(652, 418, 64);
-  const ct3 = iso(652, 442, 64);
-  const ct4 = iso(628, 442, 64);
-  x.strokeStyle = 'rgba(251,191,36,0.6)';
-  x.lineWidth = 2;
-  x.beginPath();
-  x.moveTo(ct1.x, ct1.y); x.lineTo(ct2.x, ct2.y);
-  x.lineTo(ct3.x, ct3.y); x.lineTo(ct4.x, ct4.y);
-  x.closePath(); x.stroke();
-  // Gold base ring around the column's foot.
-  const cb1 = iso(628, 418, 0);
-  const cb2 = iso(652, 418, 0);
-  const cb3 = iso(652, 442, 0);
-  const cb4 = iso(628, 442, 0);
-  x.strokeStyle = 'rgba(251,191,36,0.55)';
-  x.lineWidth = 2.5;
-  x.beginPath();
-  x.moveTo(cb1.x, cb1.y); x.lineTo(cb2.x, cb2.y);
-  x.lineTo(cb3.x, cb3.y); x.lineTo(cb4.x, cb4.y);
-  x.closePath(); x.stroke();
-  // Glowing core: vertical beam sprite inside the column + a glow at its top.
-  const coreTop = iso(640, 430, 64);
-  x.save();
-  x.globalCompositeOperation = 'lighter';
-  x.drawImage(vbeamSprite('34,211,238', 10, 70, 0.8), coreTop.x - 5, coreTop.y - 70);
-  drawGlow(x, glowSprite('#22d3ee', { a0: 0.7 }), coreTop.x, coreTop.y - 6, 26);
-  x.restore();
-  // Low glass partitions across the middle (same style as stage glass).
-  for (const [gx, gy, gw] of [[400, 230, 160], [720, 180, 160]]) {
-    extrudeBox(x, gx, gy, gw, 10, 30,
-      'rgba(103,232,249,0.20)', 'rgba(103,232,249,0.10)', 'rgba(103,232,249,0.06)');
-    const g1 = iso(gx, gy, 30);
-    const g2 = iso(gx + gw, gy, 30);
-    const g3 = iso(gx + gw, gy + 10, 30);
-    const g4 = iso(gx, gy + 10, 30);
-    x.strokeStyle = 'rgba(103,232,249,0.7)';
-    x.lineWidth = 1.5;
-    x.beginPath();
-    x.moveTo(g1.x, g1.y); x.lineTo(g2.x, g2.y);
-    x.lineTo(g3.x, g3.y); x.lineTo(g4.x, g4.y);
-    x.closePath(); x.stroke();
-    x.strokeStyle = 'rgba(251,191,36,0.55)';
-    x.lineWidth = 2;
-    x.beginPath(); x.moveTo(g1.x, g1.y); x.lineTo(g2.x, g2.y); x.stroke();
-    x.strokeStyle = 'rgba(255,255,255,0.18)';
-    x.lineWidth = 3;
-    x.beginPath();
-    x.moveTo(g1.x + 8, g1.y + 10); x.lineTo(g3.x - 8, g3.y - 4);
-    x.stroke();
-  }
-  // Floor furniture in the middle: a crate and a barrel (visual only).
-  drawProp(x, { x: 480, y: 480, kind: 'crate', seed: 0.3 }, 0);
-  drawProp(x, { x: 820, y: 480, kind: 'barrel', seed: 0.4 }, 0);
-  titleCenterpiece = c;
-  return c;
-}
-
-export function drawTitleCenterpiece(ctx) {
-  ctx.drawImage(titleCenterpieceSprite(), 0, 0);
-}
-
 export function drawTitle(ctx, G, time) {
+  const P = G.persist;
   ctx.save();
+  // Dark veil: the world behind the title goes dark so the beams and the
+  const veil = ctx.createLinearGradient(0, 0, 0, H);
+  veil.addColorStop(0, 'rgba(5,7,13,0.5)');
+  veil.addColorStop(0.6, 'rgba(5,7,13,0.3)');
+  veil.addColorStop(1, 'rgba(5,7,13,0.55)');
+  ctx.fillStyle = veil;
+  ctx.fillRect(0, 0, W, H);
   ctx.drawImage(titleHeaderSprite(), 0, 0);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // 3-panel HOW TO PLAY strip (bottom, never blocking the center table).
-  const panels = [
-    { n: '1', title: 'MOVE & STEAL', body: 'WASD to move. Stand at a glass pod to extract its Core.', icon: 'move' },
-    { n: '2', title: 'TIME REWINDS', body: 'At 0.00s the loop rewinds — and your past self replays.', icon: 'rewind' },
-    { n: '3', title: 'CO-OP WITH ECHOES', body: 'Echoes hold plates, deflect beams, open gates. You finish the job.', icon: 'echo' },
+  // Persistent strip (left): the player's record, always on the title.
+  ctx.fillStyle = 'rgba(10,14,26,0.92)';
+  ctx.beginPath(); ctx.roundRect(12, 250, 184, 150, 10); ctx.fill();
+  ctx.strokeStyle = 'rgba(251,191,36,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
+  text(ctx, 'YOUR HEISTS', 104, 268, 'bold 11px Georgia, serif', GOLD);
+  const pRows = [
+    ['BEST', P.best ? P.best.toLocaleString('en-US') : '—', '#e8ecff'],
+    ['FURTHEST', P.furthest > 1 ? 'VAULT ' + P.furthest : '—', '#e8ecff'],
+    ['LAST RUN', P.runs.length ? (P.runs[0].won ? 'WON · ' + P.runs[0].grade : 'LOST · V' + (P.runs[0].label.match(/V(\d)/)?.[1] || '?')) : '—', P.runs.length && P.runs[0].won ? '#34d399' : '#f87171'],
   ];
-  panels.forEach((p, i) => {
-    const x = 640 - 3 * 130 + i * 270 + 10, y = 428, w = 250, h = 108;
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 10);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(251,191,36,0.55)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.fillStyle = '#fbbf24';
-    ctx.font = 'bold 22px Georgia, serif';
-    ctx.fillText(p.n, x + 24, y + 26);
-    drawHowIcon(ctx, p.icon, x + 56, y + 26, '#22d3ee');
-    ctx.fillStyle = '#e8ecff';
-    ctx.font = 'bold 14px Georgia, serif';
-    ctx.fillText(p.title, x + w / 2, y + 52);
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '12px Georgia, serif';
-    wrapText(ctx, p.body, x + w / 2, y + 72, w - 24, 15);
+  pRows.forEach((r, i) => {
+    const y = 296 + i * 34;
+    text(ctx, r[0], 24, y, 'bold 10px Georgia, serif', '#94a3b8', 'left');
+    text(ctx, r[1], 184, y + 14, 'bold 16px Georgia, serif', r[2], 'right');
   });
-  // START HEIST button.
+  // Bestiary (right): the six threats, one line each.
+  ctx.fillStyle = 'rgba(10,14,26,0.92)';
+  ctx.beginPath(); ctx.roundRect(1084, 250, 184, 222, 10); ctx.fill();
+  ctx.strokeStyle = 'rgba(239,68,68,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
+  text(ctx, 'BESTIARY', 1176, 268, 'bold 11px Georgia, serif', '#f87171');
+  THREATS.forEach((t, i) => {
+    const y = 292 + i * 32;
+    ctx.fillStyle = t[2];
+    ctx.beginPath(); ctx.arc(1098, y - 2, 5, 0, Math.PI * 2); ctx.fill();
+    text(ctx, t[0], 1110, y - 2, 'bold 11px Georgia, serif', '#e8ecff', 'left');
+    text(ctx, t[1], 1110, y + 12, '10px Georgia, serif', '#94a3b8', 'left');
+  });
+  // Difficulty row: CALM x0.75 / HEIST x1 / NIGHTMARE x1.5.
+  text(ctx, 'DIFFICULTY', 640, 488, 'bold 11px Georgia, serif', '#94a3b8');
+  const diffs = [['CALM', '×0.75'], ['HEIST', '×1'], ['NIGHTMARE', '×1.5']];
+  diffs.forEach((d, i) => {
+    const x = 445 + i * 135, sel = G.diff === d[0];
+    pill(ctx, x, 500, 120, 30, sel ? GOLD : 'rgba(10,14,26,0.92)', sel ? null : 'rgba(251,191,36,0.5)');
+    text(ctx, d[0] + ' ' + d[1], x + 60, 515, 'bold 12px Georgia, serif', sel ? '#0b1020' : '#e8ecff');
+  });
+  // Glowing PLAY button (same rect as before: 510-770 x 566-622).
   ctx.fillStyle = '#b91c1c';
   ctx.beginPath();
   ctx.roundRect(640 - 130, 566, 260, 56, 10);
   ctx.fill();
-  ctx.strokeStyle = '#fbbf24';
+  ctx.strokeStyle = GOLD;
   ctx.lineWidth = 2.5;
   ctx.stroke();
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 24px Georgia, serif';
-  ctx.fillText('▶  START HEIST', 640, 595);
-  ctx.fillStyle = 'rgba(5,7,13,0.78)';
-  ctx.beginPath(); ctx.roundRect(640 - 330, 634, 660, 46, 10); ctx.fill();
-  ctx.fillStyle = '#cbd5e1';
-  ctx.font = '12px Georgia, serif';
-  ctx.fillText('WASD move · Space dash · E hack · 1–4 abilities · R rewind · P pause · M mute', 640, 648);
-  ctx.fillText('Win: shatter the Chrono-Warden on Vault 7. Lose: your integrity hits zero.', 640, 668);
+  ctx.fillText('▶  PLAY', 640, 595);
+  // Compact 3-icon HOW TO PLAY strip (bottom, never blocking the center).
+  const how = [
+    ['move', 'WASD MOVE · STEAL CORES'],
+    ['rewind', '0.00s REWIND · ECHOES REPLAY'],
+    ['echo', 'ECHOES HOLD PLATES · YOU FINISH'],
+  ];
+  how.forEach((h, i) => {
+    const x = 180 + i * 310;
+    ctx.fillStyle = 'rgba(10,14,26,0.92)';
+    ctx.beginPath(); ctx.roundRect(x, 634, 300, 34, 10); ctx.fill();
+    drawHowIcon(ctx, h[0], x + 22, 651, CYAN);
+    text(ctx, h[1], x + 42, 651, 'bold 11px Georgia, serif', '#e8ecff', 'left');
+  });
+  text(ctx, 'Space dash · E hack · 1–4 abilities · R rewind · P pause · M mute', 640, 690, '12px Georgia, serif', '#cbd5e1');
   ctx.restore();
 }
 
@@ -1560,44 +1428,65 @@ function wrapText(ctx, s, x, y, maxW, lh) {
 }
 
 // The draft header is identical for a given stage; its shadowBlur title is
-// painted once per stage instead of every frame.
 const draftHeaders = new Map();
 function draftHeaderSprite(stage) {
   const hit = draftHeaders.get(stage);
   if (hit) return hit;
   const c = document.createElement('canvas');
-  c.width = W; c.height = 160;
+  c.width = W; c.height = 120;
   const x = c.getContext('2d');
   x.textAlign = 'center';
   x.textBaseline = 'middle';
   x.shadowColor = 'rgba(251,191,36,0.7)';
   x.shadowBlur = 14;
-  x.font = 'bold 34px Georgia, serif';
+  x.font = 'bold 30px Georgia, serif';
   x.fillStyle = '#fbbf24';
-  x.fillText('CHOOSE AN UPGRADE — PICK 1 OF 3', 640, 92);
+  x.fillText(`VAULT ${stage} CLEARED — CHOOSE YOUR PATH`, 640, 40);
   x.shadowBlur = 0;
   x.fillStyle = 'rgba(5,7,13,0.78)';
-  x.beginPath(); x.roundRect(640 - 330, 110, 660, 32, 10); x.fill();
+  x.beginPath(); x.roundRect(640 - 330, 62, 660, 32, 10); x.fill();
   x.font = '15px Georgia, serif';
   x.fillStyle = '#cbd5e1';
-  x.fillText(`Vault ${stage} cleared! Your new Chrono-Mod joins the network at once.`, 640, 126);
+  x.fillText('Pick 1 of 3 Chrono-Mods — your echoes inherit it at once.', 640, 78);
   draftHeaders.set(stage, c);
   return c;
 }
 
-// Draft: CHOOSE AN UPGRADE — PICK 1 OF 3.
+const FAMCOL = { TIME: '#22d3ee', WARD: '#a78bfa', FLOW: '#34d399', GOLD: '#fbbf24' };
+const RARECOL = { C: '#94a3b8', R: '#22d3ee', E: '#fbbf24' };
+const RARENAME = { C: 'COMMON', R: 'RARE', E: 'EPIC' };
+const NEXT_NEW = { 2: 'Sentry Turret', 3: 'Temporal Jammer', 4: 'Sentry Turret + Jammer', 5: 'Laser Sweeper', 6: 'Chrono-Mine', 7: 'THE CHRONO-WARDEN' };
+
+// Draft: route map + CHOOSE AN UPGRADE — PICK 1 OF 3.
 export function drawDraft(ctx, G) {
   const st = G.state;
   ctx.save();
   // Light scrim (was 0.72): the arena must stay visible behind the cards —
-  // the diorama, not a black void, is what the player is standing in.
-  ctx.fillStyle = 'rgba(5,7,13,0.20)';
+  ctx.fillStyle = 'rgba(5,7,13,0.35)';
   ctx.fillRect(0, 0, W, H);
-  ctx.drawImage(draftHeaderSprite(st.stage), 0, 0);
+  ctx.drawImage(draftHeaderSprite(st.stage), 0, 56);
+  // Shards balance, top right (clear of the SOUND / pause buttons).
+  pill(ctx, 1000, 12, 160, 28, 'rgba(10,14,26,0.92)', 'rgba(251,191,36,0.5)');
+  text(ctx, '◆ ' + st.shards + ' SHARDS', 1080, 26, 'bold 13px Georgia, serif', GOLD);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  // Vault Blueprint route map: 7 vault nodes, the path, next-vault preview.
+  text(ctx, 'VAULT BLUEPRINT — ROUTE MAP', 640, 156, 'bold 11px Georgia, serif', GOLD);
+  ctx.strokeStyle = 'rgba(251,191,36,0.4)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(200, 176); ctx.lineTo(1080, 176); ctx.stroke();
+  for (let i = 0; i < 7; i++) {
+    const nx = 200 + i * 146.67, done = i < st.stage, next = i === st.stage;
+    ctx.fillStyle = done ? '#34d399' : next ? GOLD : '#1e293b';
+    ctx.beginPath(); ctx.arc(nx, 176, 13, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = done ? '#34d399' : next ? GOLD : '#64748b';
+    ctx.lineWidth = next ? 3 : 1.5; ctx.stroke();
+    text(ctx, done ? '✓' : 'V' + (i + 1), nx, 176, 'bold 10px Georgia, serif', done || next ? '#0b1020' : '#94a3b8');
+    text(ctx, STAGE_NAMES[i + 1], nx, 198, '9px Georgia, serif', next ? GOLD : '#94a3b8');
+  }
+  text(ctx, 'NEXT: VAULT ' + (st.stage + 1) + ' — ' + STAGE_NAMES[st.stage + 1] + ' · NEW: ' + NEXT_NEW[st.stage + 1], 640, 214, 'bold 12px Georgia, serif', CYAN);
   st.draft.forEach((m, i) => {
-    const x = 640 - 3 * 140 + i * 290 + 15, y = 168, w = 260, h = 330;
+    const x = 640 - 3 * 140 + i * 290 + 15, y = 224, w = 260, h = 290;
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, 12);
@@ -1605,43 +1494,75 @@ export function drawDraft(ctx, G) {
     ctx.strokeStyle = m.color;
     ctx.lineWidth = 2.5;
     ctx.stroke();
+    // Rarity trim along the top edge.
+    ctx.fillStyle = RARECOL[m.rare];
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, 6, [12, 12, 0, 0]);
+    ctx.fill();
     // Colored header band.
     ctx.fillStyle = m.color;
     ctx.beginPath();
-    ctx.roundRect(x, y, w, 46, [12, 12, 0, 0]);
+    ctx.roundRect(x, y + 6, w, 38, [0, 0, 0, 0]);
     ctx.fill();
     ctx.fillStyle = '#0b1020';
     ctx.font = 'bold 15px Georgia, serif';
-    ctx.fillText(m.tag.toUpperCase(), x + w / 2, y + 24);
-    // Custom icon medallion.
-    ctx.fillStyle = m.color;
+    ctx.fillText(m.tag.toUpperCase(), x + w / 2, y + 25);
+    // Family + rarity tags.
+    text(ctx, '◆ ' + m.fam, x + 12, y + 56, 'bold 11px Georgia, serif', FAMCOL[m.fam], 'left');
+    text(ctx, RARENAME[m.rare] + ' ★', x + w - 12, y + 56, 'bold 11px Georgia, serif', RARECOL[m.rare], 'right');
+    ctx.textAlign = 'center'; // text() above leaves align 'right'; the
+    // name / desc / synergy / take-bar below are all centered fillText.
+    // Procedural illustrated art: glow + rays + the mod icon, large.
+    ctx.fillStyle = '#0b1020';
     ctx.beginPath();
-    ctx.arc(x + w / 2, y + 118, 42, 0, Math.PI * 2);
+    ctx.roundRect(x + 10, y + 66, w - 20, 90, 8);
     ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    drawModIcon(ctx, m.icon, x + w / 2, y + 118, '#0b1020');
-    // Name + description + stat badge.
+    drawGlow(ctx, glowSprite(m.color, { a0: 0.5 }), x + w / 2, y + 111, 70);
+    ctx.strokeStyle = m.color;
+    ctx.lineWidth = 1.5;
+    for (let k = 0; k < 3; k++) {
+      const a = -0.9 + k * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2, y + 111);
+      ctx.lineTo(x + w / 2 + Math.cos(a) * 100, y + 111 + Math.sin(a) * 38);
+      ctx.stroke();
+    }
+    ctx.save();
+    ctx.translate(x + w / 2, y + 111);
+    ctx.scale(1.5, 1.5);
+    drawModIcon(ctx, m.icon, 0, 0, m.color);
+    ctx.restore();
+    // Name + description + synergy + take bar.
     ctx.fillStyle = '#e8ecff';
-    ctx.font = 'bold 20px Georgia, serif';
-    ctx.fillText(m.name, x + w / 2, y + 192);
+    ctx.font = 'bold 19px Georgia, serif';
+    ctx.fillText(m.name, x + w / 2, y + 178);
     ctx.fillStyle = '#94a3b8';
     ctx.font = '13px Georgia, serif';
-    wrapText(ctx, m.desc, x + w / 2, y + 222, w - 32, 17);
+    wrapText(ctx, m.desc, x + w / 2, y + 200, w - 32, 17);
+    ctx.fillStyle = GOLD;
+    ctx.font = 'italic 11px Georgia, serif';
+    ctx.fillText('↗ ' + m.syn, x + w / 2, y + 232);
     ctx.fillStyle = '#1e293b';
     ctx.beginPath();
-    ctx.roundRect(x + 20, y + 276, w - 40, 26, 8);
+    ctx.roundRect(x + 20, y + 246, w - 40, 24, 8);
     ctx.fill();
     ctx.fillStyle = GOLD;
     ctx.font = 'bold 12px Georgia, serif';
-    ctx.fillText('CLICK TO TAKE', x + w / 2, y + 290);
+    ctx.fillText('CLICK TO TAKE · [' + (i + 1) + ']', x + w / 2, y + 258);
   });
+  // Shop row: Mend +1 Integrity, Reroll — Chrono-Shards economy.
+  const canMend = st.shards >= 20 && st.hpLeft < st.maxHp;
+  const canReroll = st.shards >= 10;
+  pill(ctx, 400, 530, 180, 36, canMend ? 'rgba(52,211,153,0.25)' : 'rgba(10,14,26,0.92)', canMend ? '#34d399' : 'rgba(148,163,184,0.4)');
+  text(ctx, 'MEND +1 ◆20', 490, 548, 'bold 13px Georgia, serif', canMend ? '#34d399' : '#64748b');
+  pill(ctx, 600, 530, 160, 36, canReroll ? 'rgba(34,211,238,0.25)' : 'rgba(10,14,26,0.92)', canReroll ? CYAN : 'rgba(148,163,184,0.4)');
+  text(ctx, 'REROLL ◆10 [R]', 680, 548, 'bold 13px Georgia, serif', canReroll ? CYAN : '#64748b');
+  text(ctx, '◆ ' + st.shards, 800, 548, 'bold 14px Georgia, serif', GOLD, 'left');
   ctx.fillStyle = 'rgba(5,7,13,0.78)';
-  ctx.beginPath(); ctx.roundRect(640 - 310, 524, 620, 30, 10); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(640 - 310, 580, 620, 30, 10); ctx.fill();
   ctx.fillStyle = '#cbd5e1';
   ctx.font = '13px Georgia, serif';
-  ctx.fillText('Mods held: ' + (st.mods.length ? st.mods.map((m) => m.name).join(' · ') : 'none yet') + '  (' + st.mods.length + '/5)', 640, 540);
+  ctx.fillText('Mods held: ' + (st.mods.length ? st.mods.map((m) => m.name).join(' · ') : 'none yet') + '  (' + st.mods.length + '/5)', 640, 596);
   ctx.restore();
 }
 
@@ -1683,113 +1604,129 @@ export function drawModIcon(ctx, icon, x, y, color) {
   ctx.restore();
 }
 
-// The victory header is identical every frame; its shadowBlur title is
-// painted once and stamped inside the modal.
-let victoryHeader = null;
-function victoryHeaderSprite() {
-  if (victoryHeader) return victoryHeader;
-  const c = document.createElement('canvas');
-  c.width = 580; c.height = 120;
-  const x = c.getContext('2d');
-  x.textAlign = 'center';
-  x.textBaseline = 'middle';
-  x.shadowColor = 'rgba(251,191,36,0.8)';
-  x.shadowBlur = 16;
-  x.font = 'bold 36px Georgia, serif';
-  x.fillStyle = GOLD;
-  x.fillText('HEIST COMPLETE', 290, 44);
-  x.shadowBlur = 0;
-  x.font = '15px Georgia, serif';
-  x.fillStyle = '#22d3ee';
-  x.fillText('The Omega Core is yours. The vault wakes to empty shelves.', 290, 76);
-  victoryHeader = c;
-  return c;
-}
-
-// Victory: HEIST COMPLETE — RANK S, breakdown, replay.
+// Victory: dawn analytics — Rank S medal, stats grid, timeline graph,
+// feats, last runs, next goal, three replay options.
 export function drawVictory(ctx, G) {
   const st = G.state;
+  const P = G.persist;
   ctx.save();
-  // Light scrim (was 0.6): the denser diorama must show around the modal.
-  ctx.fillStyle = 'rgba(5,7,13,0.15)';
+  // Dawn palette shift: the vault wakes to a warm sunrise over the arena.
+  const dawn = ctx.createLinearGradient(0, 0, 0, H);
+  dawn.addColorStop(0, 'rgba(30,27,75,0.94)');
+  dawn.addColorStop(0.55, 'rgba(124,45,18,0.92)');
+  dawn.addColorStop(1, 'rgba(180,83,9,0.92)');
+  ctx.fillStyle = dawn;
   ctx.fillRect(0, 0, W, H);
-  const bx = 640 - 290, by = 66, bw = 580, bh = 500;
-  ctx.fillStyle = '#0f172a';
-  ctx.beginPath();
-  ctx.roundRect(bx, by, bw, bh, 14);
-  ctx.fill();
-  ctx.strokeStyle = GOLD;
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
-  ctx.drawImage(victoryHeaderSprite(), bx, by);
+  [[200, 120], [1080, 90], [640, 640], [120, 620], [1160, 600]].forEach((b) => {
+    drawGlow(ctx, glowSprite(GOLD, { a0: 0.22 }), b[0], b[1], 90);
+  });
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // Rank S medal.
-  ctx.beginPath();
-  ctx.arc(640, by + 142, 38, 0, Math.PI * 2);
-  ctx.fillStyle = GOLD;
-  ctx.fill();
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.fillStyle = '#7c2d12';
-  ctx.font = 'bold 40px Georgia, serif';
-  ctx.fillText(st.grade, 640, by + 144);
-  ctx.font = 'bold 12px Georgia, serif';
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('RANK ' + st.grade, 640, by + 192);
-  // Breakdown table.
-  const rows = [
-    ['Final Score', st.score.toLocaleString('en-US')],
-    ['Cores Stolen', st.coresGot + ' / 21'],
-    ['Loops Used', String(st.loopsUsed)],
-    ['Loops Saved', String(st.loopsSaved)],
-    ['Max Echo Sync', 'x' + st.maxSync.toFixed(2)],
-    ['Time Bonus', '+' + st.timeBonus.toLocaleString('en-US')],
-    ['Integrity Left', st.hpLeft + ' / ' + st.maxHp],
-  ];
-  rows.forEach((r, i) => {
-    const y = by + 222 + i * 26;
-    ctx.fillStyle = i % 2 === 0 ? 'rgba(148,163,184,0.08)' : 'rgba(0,0,0,0)';
-    ctx.fillRect(bx + 60, y - 12, bw - 120, 24);
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '13px Georgia, serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(r[0], bx + 76, y);
-    ctx.fillStyle = '#e8ecff';
-    ctx.font = 'bold 13px Georgia, serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(r[1], bx + bw - 76, y);
-  });
-  // Mini score-by-vault bar chart.
-  const bars = st.scoreByStage;
-  ctx.fillStyle = '#94a3b8';
-  ctx.font = 'bold 11px Georgia, serif';
-  ctx.textAlign = 'left';
-  ctx.fillText('SCORE BY VAULT', bx + 60, by + 428);
-  const maxV = Math.max(1, ...bars);
-  bars.forEach((v, i) => {
-    const x = bx + 60 + i * 68;
-    const h = Math.max(4, (v / maxV) * 44);
-    ctx.fillStyle = i === 6 ? GOLD : CYAN;
-    ctx.fillRect(x, by + 470 - h, 52, h);
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '9px Georgia, serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('V' + (i + 1), x + 26, by + 482);
-  });
-  // Replay button.
-  ctx.fillStyle = '#b91c1c';
-  ctx.beginPath();
-  ctx.roundRect(640 - 110, by + bh - 8, 220, 48, 10);
-  ctx.fill();
-  ctx.strokeStyle = GOLD;
+  // Banner.
+  text(ctx, 'HEIST COMPLETE', 640, 52, 'bold 36px Georgia, serif', GOLD);
+  text(ctx, 'The Omega Core is yours. The vault wakes to empty shelves.', 640, 84, '15px Georgia, serif', CYAN);
+  const mm = Math.floor(G.runTime / 60), ss = Math.floor(G.runTime % 60);
+  const tstr = mm + ':' + String(ss).padStart(2, '0');
+  const dm = G.diff === 'CALM' ? '0.75' : G.diff === 'NIGHTMARE' ? '1.5' : '1';
+  text(ctx, 'SEED ' + G.runSeed + ' · ' + tstr + ' · ' + G.diff + ' ×' + dm, 640, 112, '12px Georgia, serif', '#cbd5e1');
+  // Left panel: sunburst medal + score + shards banked.
+  ctx.fillStyle = 'rgba(10,14,26,0.92)';
+  ctx.beginPath(); ctx.roundRect(40, 130, 260, 430, 12); ctx.fill();
+  ctx.strokeStyle = 'rgba(251,191,36,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.strokeStyle = 'rgba(251,191,36,0.4)';
   ctx.lineWidth = 2;
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(170 + Math.cos(a) * 60, 208 + Math.sin(a) * 60);
+    ctx.lineTo(170 + Math.cos(a) * 78, 208 + Math.sin(a) * 78);
+    ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(170, 208, 52, 0, Math.PI * 2);
+  ctx.fillStyle = GOLD; ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.fillStyle = '#7c2d12';
+  ctx.font = 'bold 44px Georgia, serif';
+  ctx.fillText(st.grade, 170, 210);
+  text(ctx, 'RANK ' + st.grade, 170, 276, 'bold 12px Georgia, serif', '#94a3b8');
+  if (st.score >= P.best && P.best > 0) {
+    pill(ctx, 95, 292, 150, 24, GOLD, null);
+    text(ctx, '★ NEW BEST!', 170, 304, 'bold 13px Georgia, serif', '#0b1020');
+  }
+  text(ctx, 'FINAL SCORE', 170, 340, 'bold 11px Georgia, serif', '#94a3b8');
+  text(ctx, st.score.toLocaleString('en-US'), 170, 366, 'bold 28px Georgia, serif', '#e8ecff');
+  text(ctx, '◆ +' + st.shardsBanked + ' SHARDS BANKED', 170, 400, 'bold 13px Georgia, serif', GOLD);
+  text(ctx, 'WORKSHOP: ' + P.workshop + ' ◆', 170, 424, '12px Georgia, serif', '#94a3b8');
+  // Middle panel: 8-stat grid + combo/damage timeline graph.
+  ctx.fillStyle = 'rgba(10,14,26,0.92)';
+  ctx.beginPath(); ctx.roundRect(320, 130, 420, 430, 12); ctx.fill();
+  ctx.strokeStyle = 'rgba(34,211,238,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+  text(ctx, 'RUN STATS', 340, 150, 'bold 11px Georgia, serif', CYAN, 'left');
+  const stats = [
+    ['FINAL SCORE', st.score.toLocaleString('en-US')],
+    ['CORES', st.coresGot + ' / ' + st.coresTotal],
+    ['LOOPS', st.loopsUsed + ' · saved ' + st.loopsSaved],
+    ['MAX SYNC', '×' + st.maxSync.toFixed(2)],
+    ['DAMAGE', st.dmgDealt.toLocaleString('en-US')],
+    ['TIME', tstr],
+    ['INTEGRITY', st.hpLeft + ' / ' + st.maxHp],
+    ['DIFFICULTY', G.diff + ' ×' + dm],
+  ];
+  stats.forEach((s, i) => {
+    const cx = 340 + (i % 2) * 210, cy = 176 + Math.floor(i / 2) * 58;
+    text(ctx, s[0], cx, cy, 'bold 10px Georgia, serif', '#94a3b8', 'left');
+    text(ctx, s[1], cx, cy + 20, 'bold 16px Georgia, serif', '#e8ecff', 'left');
+  });
+  text(ctx, 'SCORE BY VAULT — BARS: SCORE · LINE: COMBO', 340, 420, 'bold 11px Georgia, serif', '#94a3b8', 'left');
+  const bars = st.scoreByStage, maxV = Math.max(1, ...bars);
+  bars.forEach((v, i) => {
+    const x = 340 + i * 58, h = Math.max(4, (v / maxV) * 64);
+    ctx.fillStyle = i === 6 ? GOLD : CYAN;
+    ctx.fillRect(x, 500 - h, 44, h);
+    text(ctx, 'V' + (i + 1), x + 22, 514, '9px Georgia, serif', '#94a3b8');
+  });
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  st.comboByStage.forEach((c, i) => {
+    const x = 340 + i * 58 + 22, y = 500 - (c / 5) * 64;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
   ctx.stroke();
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 20px Georgia, serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('↻  PLAY AGAIN', 640, by + bh + 16);
+  st.comboByStage.forEach((c, i) => {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(340 + i * 58 + 22, 500 - (c / 5) * 64, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  // Right panel: feats + last 3 runs.
+  ctx.fillStyle = 'rgba(10,14,26,0.92)';
+  ctx.beginPath(); ctx.roundRect(760, 130, 480, 430, 12); ctx.fill();
+  ctx.strokeStyle = 'rgba(52,211,153,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+  const doneN = st.feats.filter((f) => f.done).length;
+  text(ctx, 'FEATS ' + doneN + '/8', 780, 150, 'bold 11px Georgia, serif', '#34d399', 'left');
+  FEATS.forEach((f, i) => {
+    const y = 172 + i * 26, got = st.feats[i] && st.feats[i].done;
+    text(ctx, got ? '✓' : '·', 780, y, 'bold 13px Georgia, serif', got ? '#34d399' : '#64748b', 'left');
+    text(ctx, f[0], 800, y, '12px Georgia, serif', got ? '#e8ecff' : '#64748b', 'left');
+    if (st.feats[i] && st.feats[i].isNew) text(ctx, 'NEW', 1220, y, 'bold 10px Georgia, serif', GOLD, 'right');
+  });
+  text(ctx, 'LAST 3 RUNS', 780, 396, 'bold 11px Georgia, serif', CYAN, 'left');
+  P.runs.slice(0, 3).forEach((r, i) => {
+    const y = 420 + i * 26;
+    text(ctx, r.grade, 780, y, 'bold 14px Georgia, serif', r.won ? GOLD : '#94a3b8', 'left');
+    text(ctx, r.label, 806, y, '12px Georgia, serif', '#e8ecff', 'left');
+    text(ctx, r.score.toLocaleString('en-US'), 1220, y, 'bold 12px Georgia, serif', '#e8ecff', 'right');
+  });
+  // Next goal + replay options.
+  pill(ctx, 40, 576, 1200, 30, 'rgba(10,14,26,0.92)', 'rgba(251,191,36,0.5)');
+  text(ctx, 'NEXT GOAL: reach Vault 7 on NIGHTMARE — or beat 30,000 on HEIST', 640, 591, 'bold 13px Georgia, serif', GOLD);
+  pill(ctx, 340, 626, 200, 52, '#b91c1c', GOLD);
+  text(ctx, '↻ RUN AGAIN', 440, 652, 'bold 18px Georgia, serif', '#fff');
+  pill(ctx, 560, 626, 200, 52, 'rgba(10,14,26,0.92)', GOLD);
+  text(ctx, '↻ SAME SEED [S]', 660, 652, 'bold 15px Georgia, serif', GOLD);
+  pill(ctx, 780, 626, 160, 52, 'rgba(10,14,26,0.92)', 'rgba(148,163,184,0.5)');
+  text(ctx, 'MENU [Esc]', 860, 652, 'bold 15px Georgia, serif', '#e8ecff');
   ctx.restore();
 }
 

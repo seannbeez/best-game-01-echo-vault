@@ -1,14 +1,11 @@
 // ECHO VAULT — Break Time. Steal Everything. — game core. One clear job:
-// own the state machine (title / play / draft / victory / defeat), the
-// 8-second loop and its rewind, the echo lifecycle, scoring, the draft,
-// the staged screenshot scenes, and the window.__game test handle.
 import {
-  W, H, ARENA, LOOP_BASE, MAX_ECHOES, ECHO_COLORS, MODS, WARDEN_HP,
+  W, H, ARENA, LOOP_BASE, MAX_ECHOES, ECHO_COLORS, MODS, FEATS,
   clamp, dist,
 } from './config.js';
 import { makeRng } from './random.js';
 import { AudioSys } from './audio.js';
-import { buildStage, STAGE_NAMES, STAGE_INTROS } from './levels.js';
+import { buildStage, STAGE_NAMES } from './levels.js';
 import { EchoRecorder, makeEchoes } from './echo.js';
 import { Input } from './input.js';
 import { iso } from './iso.js';
@@ -38,6 +35,10 @@ class Game {
     this.callouts = [];
     this.state = this.freshState();
     this.rng = makeRng(1337);
+    this.diff = 'HEIST'; // CALM x0.75 / HEIST x1 / NIGHTMARE x1.5
+    this.runSeed = this.newSeed();
+    this.runTime = 0;
+    this.persist = this.loadPersist();
     this.setupInput();
     this.startStage(1);
     if (SHOT) this.setupStagedScene(SHOT);
@@ -49,7 +50,41 @@ class Game {
       loopsUsed: 0, loopsSaved: 0, combo: 1, maxSync: 1, syncCount: 0,
       mods: [], draft: [], grade: 'S', hpLeft: 3, maxHp: 3, timeBonus: 0,
       scoreByStage: [0, 0, 0, 0, 0, 0, 0], stageScore: 0, loopsThisStage: 0,
+      shards: 0, dmgDealt: 0, comboByStage: [0, 0, 0, 0, 0, 0, 0],
+      feats: [], shardsBanked: 0,
     };
+  }
+
+  // Persistent bests: best score, furthest vault, last grade, last 3 runs,
+  loadPersist() {
+    try {
+      const p = JSON.parse(localStorage.getItem('echo-vault-best') || '{}');
+      return {
+        best: p.best || 0, furthest: p.furthest || 1, lastGrade: p.lastGrade || '—',
+        runs: p.runs || [], workshop: p.workshop || 0,
+      };
+    } catch { return { best: 0, furthest: 1, lastGrade: '—', runs: [], workshop: 0 }; }
+  }
+
+  savePersist() {
+    try { localStorage.setItem('echo-vault-best', JSON.stringify(this.persist)); } catch { /* offline-safe */ }
+  }
+
+  newSeed() {
+    return 'EV-' + Math.floor(Math.random() * 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+  }
+
+  recordRun(won) {
+    const st = this.state;
+    this.persist.runs.unshift({
+      grade: st.grade, score: st.score, won,
+      label: won ? 'WON · ' + this.diff : 'fell at V' + st.stage + ' · ' + this.diff,
+    });
+    this.persist.runs = this.persist.runs.slice(0, 3);
+    this.persist.best = Math.max(this.persist.best, st.score);
+    this.persist.furthest = Math.max(this.persist.furthest, st.stage);
+    this.persist.lastGrade = st.grade;
+    this.savePersist();
   }
 
   get loopDuration() {
@@ -69,34 +104,64 @@ class Game {
         this.paused = !this.paused;
       }
       // R (rewind) is handled in updatePlay via wasPressed, so dock clicks
-      // and keyboard presses take the same single path.
       if (code === 'Space' || code === 'Enter' || code === 'KeyR') {
         const s = this.state.screen;
         if (s === 'title' || s === 'victory' || s === 'defeat') {
           this.startRun();
           // A restart must not leak the same keypress into the fresh run:
-          // without this, the KeyR that restarted from defeat also fires a
-          // rewind (and Space would fire a dash) on the very next frame.
-          // (Only on a restart — consuming during play would eat dashes.)
           this.input.consume();
         }
+      }
+      // Title difficulty: 1 CALM, 2 HEIST, 3 NIGHTMARE.
+      if (this.state.screen === 'title') {
+        if (code === 'Digit1') this.diff = 'CALM';
+        if (code === 'Digit2') this.diff = 'HEIST';
+        if (code === 'Digit3') this.diff = 'NIGHTMARE';
+      }
+      // Draft: 1-3 pick a card, R rerolls for 10 shards.
+      if (this.state.screen === 'draft') {
+        if (code === 'Digit1' || code === 'Digit2' || code === 'Digit3') {
+          const m = this.state.draft[Number(code.slice(-1)) - 1];
+          if (m) this.pickMod(m);
+        }
+        if (code === 'KeyR') this.reroll();
+      }
+      // Victory: S replays the same seed, Escape returns to the title.
+      if (this.state.screen === 'victory') {
+        if (code === 'KeyS') this.startRun(true);
+        if (code === 'Escape') this.state.screen = 'title';
       }
     };
     input.onPointerDown = (x, y, isTouch) => {
       this.audio.ensure();
       if (this.state.screen === 'title') {
+        // Difficulty pills (y 500-530): CALM / HEIST / NIGHTMARE.
+        if (y >= 500 && y <= 530) {
+          if (x >= 445 && x <= 565) this.diff = 'CALM';
+          else if (x >= 580 && x <= 700) this.diff = 'HEIST';
+          else if (x >= 715 && x <= 835) this.diff = 'NIGHTMARE';
+        }
         if (x >= 510 && x <= 770 && y >= 566 && y <= 622) this.startRun();
         return;
       }
       if (this.state.screen === 'draft') {
         this.state.draft.forEach((m, i) => {
           const cx = 640 - 3 * 140 + i * 290 + 15;
-          if (x >= cx && x <= cx + 260 && y >= 168 && y <= 498) this.pickMod(m);
+          if (x >= cx && x <= cx + 260 && y >= 224 && y <= 514) this.pickMod(m);
         });
+        // Shop row (y 530-566): Mend +1 Integrity, Reroll.
+        if (y >= 530 && y <= 566) {
+          if (x >= 400 && x <= 580) this.buyMend();
+          else if (x >= 600 && x <= 760) this.reroll();
+        }
         return;
       }
       if (this.state.screen === 'victory') {
-        if (x >= 530 && x <= 750 && y >= 558 && y <= 606) this.startRun();
+        if (y >= 626 && y <= 678) {
+          if (x >= 340 && x <= 540) this.startRun();
+          else if (x >= 560 && x <= 760) this.startRun(true);
+          else if (x >= 780 && x <= 940) this.state.screen = 'title';
+        }
         return;
       }
       if (this.state.screen === 'defeat') {
@@ -120,7 +185,6 @@ class Game {
         }
       }
       // Otherwise: a click dashes toward the pointer (touch: right half only,
-      // the left half is the virtual joystick).
       if (!(isTouch && x < 560)) {
         this.input.pointer.x = x;
         this.input.pointer.y = y;
@@ -135,12 +199,12 @@ class Game {
     this.input.pressed.add(code);
   }
 
-  startRun() {
+  startRun(sameSeed = false) {
     this.state = this.freshState();
     this.state.screen = 'play';
+    if (!sameSeed) this.runSeed = this.newSeed();
+    this.runTime = 0;
     // Never inherit stale steering: the test-drive target AND the virtual
-    // joystick it writes into (a leftover active joystick walks the thief
-    // into the first laser of the new run).
     this.testTarget = null;
     this.input.joy.active = false;
     this.input.joy.dx = 0;
@@ -194,13 +258,13 @@ class Game {
     this.recorder.begin();
     this.audio.sfx('rewind');
     // Echoes that were anchored stay anchored only for their own loop; a
-    // rewind clears anchors so the next loop starts clean.
     for (const e of this.echoes) { e.anchored = false; }
   }
 
   // --- Scoring & sync ----------------------------------------------------------
   addScore(n, label) {
-    const mult = this.state.combo * (this.hasMod('greedy') ? 1.5 : 1);
+    const diffMult = this.diff === 'CALM' ? 0.75 : this.diff === 'NIGHTMARE' ? 1.5 : 1;
+    const mult = this.state.combo * (this.hasMod('greedy') ? 1.5 : 1) * diffMult;
     const gain = Math.round(n * mult);
     this.state.score += gain;
     this.state.stageScore += gain;
@@ -259,6 +323,7 @@ class Game {
     const w = this.stage.warden;
     if (!w || w.hp <= 0 || w.shield) return;
     w.hp -= amount;
+    this.state.dmgDealt += amount;
     w.flash = 0.15;
     this.addScore(100, 'WARDEN HIT');
     this.addCallout(w.x + (Math.random() * 60 - 30), w.y - 80, `SHATTER -${amount}!`, '#fbbf24');
@@ -326,10 +391,17 @@ class Game {
     st.timeBonus += bonus;
     this.addScore(1000 + bonus, 'STAGE CLEAR');
     st.scoreByStage[st.stage - 1] = st.stageScore;
+    st.comboByStage[st.stage - 1] = st.combo;
+    st.shards += 50;
     st.hpLeft = Math.min(st.maxHp, this.player.hp + 1);
     this.audio.sfx('win');
     if (st.stage >= 7) { this.victory(); return; }
-    // Draft: 3 mods the player does not hold yet (pool is 8, cap 5 held).
+    this.rollDraft();
+    st.screen = 'draft';
+  }
+
+  rollDraft() {
+    const st = this.state;
     const pool = MODS.filter((m) => !this.hasMod(m.id));
     const picks = [];
     const bag = pool.slice();
@@ -338,7 +410,22 @@ class Game {
     }
     while (picks.length < 3) picks.push(MODS[Math.floor(this.rng.next() * MODS.length)]);
     st.draft = picks;
-    st.screen = 'draft';
+  }
+
+  reroll() {
+    const st = this.state;
+    if (st.screen !== 'draft' || st.shards < 10) return;
+    st.shards -= 10;
+    this.rollDraft();
+    this.audio.sfx('click');
+  }
+
+  buyMend() {
+    const st = this.state;
+    if (st.screen !== 'draft' || st.shards < 20 || st.hpLeft >= st.maxHp) return;
+    st.shards -= 20;
+    st.hpLeft += 1;
+    this.audio.sfx('grab');
   }
 
   pickMod(m) {
@@ -354,9 +441,16 @@ class Game {
   victory() {
     const st = this.state;
     st.scoreByStage[6] = st.stageScore;
+    st.comboByStage[6] = st.combo;
     st.hpLeft = this.player.hp;
     st.grade = st.score >= 12000 ? 'S' : st.score >= 9000 ? 'A' : st.score >= 6000 ? 'B' : 'C';
+    st.shardsBanked = st.shards;
+    this.persist.workshop += st.shards;
+    // Feats earned this run (index order matches FEATS in config.js).
+    const done = [true, st.hpLeft >= st.maxHp, st.coresGot >= 21, st.maxSync >= 4, true, true, st.grade === 'S', this.diff === 'NIGHTMARE'];
+    st.feats = done.map((d) => ({ done: d, isNew: d }));
     st.screen = 'victory';
+    this.recordRun(true);
     this.audio.sfx('win');
     this.audio.stopMusic();
   }
@@ -364,7 +458,9 @@ class Game {
   defeat() {
     const st = this.state;
     st.hpLeft = 0;
+    st.grade = '—';
     st.screen = 'defeat';
+    this.recordRun(false);
     this.audio.sfx('lose');
     this.audio.stopMusic();
   }
@@ -391,6 +487,7 @@ class Game {
     const dt = Math.min(0.05, dtRaw) * this.timeScale;
     this.time += dt;
     const st = this.state;
+    if (st.screen === 'play') this.runTime += dt;
     if (st.screen === 'title') {
       this.updateAttract(dt);
     } else if (st.screen === 'play' && !this.paused) {
@@ -557,9 +654,6 @@ class Game {
   }
 
   drawAttract(ctx) {
-    // The title centerpiece (glass column, partitions, furniture) sits
-    // under the demo echoes, so it never covers them or their paths.
-    R.drawTitleCenterpiece(ctx);
     // The demo echoes replay on the title screen, with their dotted paths.
     for (const e of this.echoes) {
       const pts = e.futurePath(this.loopElapsed, 1.2, 0.12);
@@ -592,6 +686,15 @@ class Game {
       this.echoes = this.makeDemoEchoes();
       this.loopElapsed = 2.2;
       this.loopT = 5.8;
+      // Staged persistent stats (real runs read localStorage instead).
+      this.persist = {
+        best: 24860, furthest: 7, lastGrade: 'S', workshop: 340,
+        runs: [
+          { grade: 'S', score: 24860, won: true, label: 'WON · HEIST' },
+          { grade: 'A', score: 19400, won: true, label: 'WON · HEIST' },
+          { grade: 'C', score: 11850, won: false, label: 'fell at V5 · HEIST' },
+        ],
+      };
     } else if (name === 'boss') {
       this.startStage(7);
       const st = this.state;
@@ -602,30 +705,29 @@ class Game {
       st.syncCount = 7;
       st.grade = 'S';
       st.coresGot = 3;
+      st.shards = 180;
       st.mods = [MODS[4], MODS[1], MODS[2], MODS[6]];
       // All three power cells extracted: the shield is down for good.
       for (const c of this.stage.cores) { c.taken = true; c.chan = 1; }
       const w = this.stage.warden;
       w.shield = false;
       w.shieldDown = true;
-      w.hp = 180;
-      w.state = 'sweep';
-      w.sweepT = 0.8;
+      w.hp = 180; // PHASE 2/3
+      w.state = 'telegraph';
+      w.teleT = 0.8;
       w.armAngle = 0.5;
       // Four staged echoes: three pinning the node plates, one deflecting.
       this.echoes = this.makeStagedBossEchoes();
       this.recordings = this.echoes.map((e) => e.recording);
       this.loopElapsed = 2.8;
       this.loopT = 5.2;
-      this.player.x = 560;
-      this.player.y = 440;
+      this.player.x = 520;
+      this.player.y = 470;
       this.player.face = 0.6;
       this.player.dashT = 0.1;
       this.callouts = [];
       this.addCallout(430, 210, 'WARDEN SHIELD BROKEN!', '#fbbf24');
-      this.addCallout(560, 470, 'CHRONO-SYNC! x4.50 COMBO', '#fbbf24');
-      this.addCallout(830, 300, 'ECHO SYNC! +500', '#22d3ee');
-      this.addCallout(700, 150, 'LASER REFLECTED!', '#f472b6');
+      this.addCallout(700, 150, 'SWEEP IN 0.8s — DIVE!', '#ef4444');
       for (const c of this.callouts) { c.frozen = true; c.life = c.max; }
       this.stage.turrets[0].state = 'fire';
       this.stage.turrets[0].angle = 0.4;
@@ -635,6 +737,7 @@ class Game {
       this.player.y = 600;
       this.state.stage = 3;
       this.state.score = 8600;
+      this.state.shards = 120;
       this.state.mods = [MODS[4], MODS[5], MODS[7], MODS[3]];
       this.state.draft = [MODS[0], MODS[1], MODS[2]];
       this.state.grade = 'A';
@@ -654,11 +757,30 @@ class Game {
       st.maxHp = 3;
       st.grade = 'S';
       st.scoreByStage = [1200, 2400, 3100, 3800, 4600, 5200, 6560];
+      st.comboByStage = [1, 2, 2.5, 3, 3.5, 4, 4.5];
+      st.dmgDealt = 1240;
+      st.shards = 180;
+      st.shardsBanked = 180;
+      st.feats = [
+        { done: true, isNew: false }, { done: false, isNew: false },
+        { done: true, isNew: false }, { done: true, isNew: true },
+        { done: true, isNew: false }, { done: true, isNew: false },
+        { done: true, isNew: true }, { done: false, isNew: false },
+      ];
+      this.runTime = 372;
+      this.runSeed = 'EV-7F2A';
+      this.persist = {
+        best: 24860, furthest: 7, lastGrade: 'S', workshop: 340,
+        runs: [
+          { grade: 'S', score: 24860, won: true, label: 'WON · HEIST' },
+          { grade: 'A', score: 19400, won: true, label: 'WON · HEIST' },
+          { grade: 'C', score: 11850, won: false, label: 'fell at V5 · HEIST' },
+        ],
+      };
     }
   }
 
   // Synthetic recordings for the title attract: waypoint loops at constant
-  // speed, with action flags at the marked waypoints.
   makeDemoRecording(waypoints, duration, speed) {
     const samples = [];
     let t = 0;
@@ -718,7 +840,7 @@ class Game {
       at(400, 180, { hack: true }),
       at(880, 180, { hack: true }),
       at(640, 570, { hack: true }),
-      at(520, 300, { shield: true }),
+      at(430, 300, { shield: true }),
     ]);
   }
 
@@ -762,6 +884,10 @@ window.__game = {
       mods: game.state.mods.map((m) => m.id),
       fps: Math.round(game.fps),
       paused: game.paused,
+      shards: game.state.shards,
+      feats: game.state.feats,
+      dmgDealt: game.state.dmgDealt,
+      scoreByStage: game.state.scoreByStage,
     };
   },
   get _g() { return game; },

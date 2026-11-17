@@ -1,23 +1,9 @@
 // ECHO VAULT — the 7 vault stages. One clear job: build a stage's walls,
-// plates, doors, lasers, turrets, mines, cores, terminals, sweepers, jammers
-// and (on stage 7) the Chrono-Warden from a stage number and a seeded RNG.
-// Plates hold doors and laser grids open; doors with link 'V' need TWO
-// plates at once (the multi-lock vault). Turret beams, mines and sweepers
-// are the damage sources; terminals hack turrets offline for a while.
 import { ARENA } from './config.js';
 
 export const STAGE_NAMES = [
   '', 'LASER GRID', 'TURRET ROW', 'JAMMER FIELD', 'SWEEPER ALLEY',
   'MULTI-LOCK VAULT', 'MINEFIELD', 'THE CHRONO-WARDEN',
-];
-export const STAGE_INTROS = [
-  '', 'Hold the plate. Kill the grid. Take the Cores.',
-  'Turrets watch the hall. Hack them or dash past.',
-  'The jammer slows you. Mirrors bend the beams.',
-  'Sweepers patrol the floor. Time your crossing.',
-  'One door, two plates, no shortcuts.',
-  'Every step could be the last. Echoes, take point.',
-  'Break the shield. Shatter the Warden. Take the Omega Core.',
 ];
 
 function base(n) {
@@ -141,7 +127,6 @@ export function buildStage(n, rng) {
     S.glass.push(glass(640, 340, 90, 10), glass(940, 420, 90, 10));
   } else {
     // Stage 7 — THE CHRONO-WARDEN. Open chamber, the sentinel at the center,
-    // three power cells to channel, three node plates that pin its arms.
     S.spawn = { x: 250, y: 580 };
     S.exit = null;
     S.warden = {
@@ -151,7 +136,6 @@ export function buildStage(n, rng) {
     S.plates.push(plate(400, 180, 'N1'), plate(880, 180, 'N2'), plate(640, 570, 'N3'));
     S.cores.push(core(300, 150), core(980, 150), core(640, 600));
     // Turrets guard the middle of the chamber, clear of the power cells, so
-    // channeling a cell is never point-blank suicide.
     S.turrets.push(turret(640, 120), turret(1030, 350));
     S.mines.push(mine(480, 300), mine(800, 300), mine(480, 430), mine(800, 430));
     S.terminals.push(terminal(250, 355, 'T1'));

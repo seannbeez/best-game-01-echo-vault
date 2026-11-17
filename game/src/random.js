@@ -1,5 +1,4 @@
 // ECHO VAULT — seeded deterministic RNG (mulberry32). One clear job: every
-// random choice in a run comes from here so staged shots stay stable.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {

@@ -1,7 +1,4 @@
 // ECHO VAULT — entity updates and character art. One clear job: move, collide,
-// damage and draw the thief, the echoes, the turrets and the Chrono-Warden.
-// The Warden is drawn as an articulated machine (hex core, segmented arms,
-// gear crown, piston legs) — never a single circle or oval.
 import {
   ARENA, PLAYER_SPEED, PLAYER_RADIUS, DASH_SPEED, DASH_TIME, DASH_COOLDOWN,
   SHIELD_TIME, SHIELD_COOLDOWN, EMP_COOLDOWN, EMP_RADIUS, ANCHOR_COOLDOWN,
@@ -9,6 +6,15 @@ import {
 } from './config.js';
 import { iso, isoShadow, screenToWorld, extrudeBox, groundEllipse } from './iso.js';
 import { glowSprite, drawGlow } from './glow.js';
+
+// Lighten a hex color toward white (for glowing echo bodies): f scales
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, ((n >> 16) & 255) * f + 40);
+  const g = Math.min(255, ((n >> 8) & 255) * f + 40);
+  const b = Math.min(255, (n & 255) * f + 40);
+  return `rgb(${r | 0},${g | 0},${b | 0})`;
+}
 
 export function createPlayer(spawn) {
   return {
@@ -68,7 +74,6 @@ export function updatePlayer(G, dt) {
     let dx = mv.x, dy = mv.y;
     if (dx === 0 && dy === 0) {
       // The pointer arrives in screen pixels; the world is isometric, so
-      // convert it back to logical ground coordinates before aiming.
       const wp = screenToWorld(input.pointer.x, input.pointer.y);
       const a = Math.atan2(wp.y - p.y, wp.x - p.x);
       dx = Math.cos(a); dy = Math.sin(a);
@@ -151,8 +156,6 @@ export function updatePlayer(G, dt) {
     }
   }
   // Warden contact damage (dash into a vulnerable Warden hurts it instead).
-  // A dead Warden (hp 0) has no hull to bounce off: the Omega Core spawns
-  // at its position and the player must be able to reach it.
   const w = S.warden;
   if (w && w.hp > 0) {
     const d = dist(p.x, p.y, w.x, w.y);
@@ -231,10 +234,6 @@ function angleLerp(a, b, t) {
 }
 
 // --- The Chrono-Warden (stage 7 boss) --------------------------------------
-// The shield stays up until all three power cells are extracted (main.js
-// sets w.shieldDown). The three node plates pin the Warden's weapons: N1
-// holds arm 0, N2 holds arm 1, N3 stops the telegraphed pulse — that is
-// what the Echoes are for.
 export function updateWarden(G, dt) {
   const w = G.stage.warden;
   if (!w || w.hp <= 0) return;
@@ -251,6 +250,7 @@ export function updateWarden(G, dt) {
       w.pulseT = 3.2;
       w.state = 'telegraph';
       w.teleT = 0.8;
+      G.addCallout(w.x, w.y - 100, 'SWEEP IN 0.8s — DIVE!', '#ef4444');
       G.audio.sfx('alarm');
     }
   }
@@ -263,7 +263,6 @@ export function updateWarden(G, dt) {
   } else if (w.state === 'sweep') {
     w.sweepT -= dt;
     // The two arms are live laser bars; touching one hurts — unless the
-    // matching node plate is held by you or an Echo.
     for (let k = 0; k < 2; k++) {
       if (held('N' + (k + 1))) continue;
       const a = w.armAngle + k * Math.PI;
@@ -318,11 +317,6 @@ export function updateSweepers(G, dt) {
 }
 
 // --- Character art ----------------------------------------------------------
-// The thief: hooded cloak, gold trim, glowing visor, flowing holo-scarf.
-// Echoes use the same body in their own color, translucent, with a tag.
-// The Thief / Echo in 2.5D: a tapered extruded cloak rising from the floor
-// diamond, a holographic scarf ribbon projected point by point, a glowing
-// visor slit, a dagger glint, and a floating overhead tag.
 export function drawThief(ctx, x, y, color, opts = {}) {
   const { face = 0, alpha = 1, tag = null, scarf = true, time = 0, shield = false } = opts;
   const c = iso(x, y);
@@ -330,7 +324,6 @@ export function drawThief(ctx, x, y, color, opts = {}) {
   ctx.save();
   ctx.globalAlpha = alpha;
   // 1.6x visual scale: the whole figure is drawn in screen space scaled
-  // around its foot point — the logical collision radius is unchanged.
   ctx.save();
   ctx.translate(c.x, c.y);
   ctx.scale(1.6, 1.6);
@@ -359,17 +352,18 @@ export function drawThief(ctx, x, y, color, opts = {}) {
     ctx.globalAlpha = alpha;
   }
   // Additive halo behind the hood: the figure glows against the dark floor
-  // (pre-rendered glow sprite).
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   drawGlow(ctx, glowSprite(color), top.x, top.y - 4, 20);
   ctx.restore();
   // Cloak body, assembled from 3D boxes: a wide hem box, a narrower torso
-  // box, and a shoulder box — the figure reads as a solid volume, not a
-  // flat billboard, and it occludes correctly against walls and props.
-  extrudeBox(ctx, x - 13, y - 13, 26, 26, 18, '#232c48', '#1b2340', '#121a2c');
-  extrudeBox(ctx, x - 10, y - 10, 20, 20, 30, '#2a3556', '#1e2846', '#141c30');
-  extrudeBox(ctx, x - 8, y - 8, 16, 16, 36, '#33406a', '#232c48', '#161e33');
+  const tinted = color !== '#e8ecff';
+  const sA = tinted ? shade(color, 0.85) : '#33406a';
+  const sB = tinted ? shade(color, 0.6) : '#2a3556';
+  const sC = tinted ? shade(color, 0.4) : '#232c48';
+  extrudeBox(ctx, x - 13, y - 13, 26, 26, 18, sC, sC, '#121a2c');
+  extrudeBox(ctx, x - 10, y - 10, 20, 20, 30, sB, sB, '#141c30');
+  extrudeBox(ctx, x - 8, y - 8, 16, 16, 36, sA, sA, '#161e33');
   // Gold trim at the hem (the south face's top edge).
   const h1 = iso(x - 13, y + 13, 18);
   const h2 = iso(x + 13, y + 13, 18);
@@ -391,7 +385,7 @@ export function drawThief(ctx, x, y, color, opts = {}) {
   ctx.stroke();
   ctx.globalAlpha = alpha;
   // Hood + glowing visor slit, sitting on the shoulder box.
-  ctx.fillStyle = '#2a3358';
+  ctx.fillStyle = tinted ? sB : '#2a3358';
   ctx.beginPath();
   ctx.arc(top.x + Math.cos(face) * 2, top.y - 2, 8.5, 0, Math.PI * 2);
   ctx.fill();
@@ -438,17 +432,15 @@ export function drawThief(ctx, x, y, color, opts = {}) {
 }
 
 // Sentry turret in 3D: a hex-prism base, a barrel along the aim vector,
-// and an additive red/amber vision cone projected onto the floor plane.
 export function drawTurret(ctx, t, time) {
   const c = iso(t.x, t.y);
   const aim = iso(t.x + Math.cos(t.angle) * t.range, t.y + Math.sin(t.angle) * t.range);
   // Sentry vision cone (additive) along the aim direction: a wide faint
-  // ground wedge plus a narrower hot core — projected onto the floor, so
-  // it foreshortens with the perspective camera instead of floating.
   if (t.disabledT <= 0) {
-    for (const [spread, col] of [[0.34, 'rgba(239,68,68,0.12)'], [0.16, 'rgba(251,146,60,0.14)']]) {
-      const l = iso(t.x + Math.cos(t.angle - spread) * t.range, t.y + Math.sin(t.angle - spread) * t.range);
-      const r = iso(t.x + Math.cos(t.angle + spread) * t.range, t.y + Math.sin(t.angle + spread) * t.range);
+    const cr = t.range * 0.7;
+    for (const [spread, col] of [[0.22, 'rgba(239,68,68,0.06)'], [0.11, 'rgba(251,146,60,0.07)']]) {
+      const l = iso(t.x + Math.cos(t.angle - spread) * cr, t.y + Math.sin(t.angle - spread) * cr);
+      const r = iso(t.x + Math.cos(t.angle + spread) * cr, t.y + Math.sin(t.angle + spread) * cr);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.fillStyle = col;
@@ -502,7 +494,6 @@ export function drawTurret(ctx, t, time) {
   // Long drop-shadow.
   isoShadow(ctx, t.x, t.y, 15, 6, 0.45);
   // Hex base as a 3D hex prism: the two south-facing side quads, then the
-  // top face with a gold hazard ring.
   const hexTop = [], hexBot = [];
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
@@ -555,8 +546,6 @@ export function drawTurret(ctx, t, time) {
 }
 
 // The Chrono-Warden in 2.5D: an extruded hexagonal vault-core prism, piston
-// legs, two segmented sweep arms with claw emitters, a rotating gear crown,
-// and a shield dome — never a single circle or oval.
 export function drawWarden(ctx, w, time) {
   const { x, y } = w;
   const c = iso(x, y);
@@ -565,9 +554,6 @@ export function drawWarden(ctx, w, time) {
   // Long cast shadow.
   isoShadow(ctx, x, y, 50, 17, 0.5);
   // 1.6x visual scale for the BODY only (legs, hex core, dial, eye, gear
-  // crown), in screen space around the base point. The sweep arms and the
-  // telegraph are range indicators, so their logical lengths are divided
-  // by 1.6 below — the scaled beam still spans the true 200 range.
   ctx.save();
   ctx.translate(c.x, c.y);
   ctx.scale(1.6, 1.6);
@@ -638,7 +624,6 @@ export function drawWarden(ctx, w, time) {
     ctx.stroke();
   }
   // Telegraph hazard grid before a sweep: a dashed projected ellipse on
-  // the floor.
   if (w.state === 'telegraph') {
     ctx.save();
     ctx.setLineDash([10, 8]);
@@ -717,8 +702,6 @@ export function drawWarden(ctx, w, time) {
     ctx.fill();
   }
   // Shield dome: a dashed gold projected ellipse while guarded, a solid
-  // cracked red ring once the shield is down for good. Drawn unscaled, so
-  // the dome keeps its true 52 radius on the floor.
   ctx.restore(); // end 1.6x body scale
   ctx.save();
   if (w.shield) {
@@ -730,7 +713,7 @@ export function drawWarden(ctx, w, time) {
   }
   ctx.restore();
   // HP bar above (raised: the 1.6x body + gear crown now reach higher).
-  const hpTop = iso(x, y, 130);
+  const hpTop = iso(x, y, 150);
   ctx.save();
   ctx.fillStyle = 'rgba(10,14,26,0.85)';
   ctx.beginPath();
@@ -751,6 +734,18 @@ export function drawWarden(ctx, w, time) {
   ctx.fill();
   ctx.fillStyle = '#e8ecff';
   ctx.fillText(lt, hpTop.x, hpTop.y - 28);
+  // Phase readout: the Warden's phase is its remaining health in thirds.
+  const ph = w.hp > 200 ? 'PHASE 1/3' : w.hp > 100 ? 'PHASE 2/3' : 'PHASE 3/3';
+  const pw = ctx.measureText(ph).width + 16;
+  ctx.fillStyle = 'rgba(8,12,24,0.92)';
+  ctx.beginPath();
+  ctx.roundRect(hpTop.x + lw / 2 + 6, hpTop.y - 40, pw, 18, 9);
+  ctx.fill();
+  ctx.strokeStyle = '#fbbf24';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText(ph, hpTop.x + lw / 2 + 6 + pw / 2, hpTop.y - 28);
   ctx.restore();
   ctx.restore();
 }

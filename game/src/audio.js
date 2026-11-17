@@ -1,7 +1,4 @@
 // ECHO VAULT — procedural Web Audio: a low-key heist groove (bass pulse,
-// sparse arpeggio, hat ticks) plus one-shot SFX. No audio files, no network.
-// Every call is guarded: if the AudioContext cannot start, the game plays on
-// silently instead of throwing.
 const MUSIC_BPM = 118;
 const BASS_LINE = [0, 0, 7, 0, 5, 0, 3, 10]; // semitone steps over A minor
 const ARP_NOTES = [12, 15, 19, 24, 19, 15, 12, 7];
