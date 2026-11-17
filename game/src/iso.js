@@ -1,21 +1,24 @@
 // True perspective camera for the mini-3D renderer (branch mini3d).
 // Replaces the 2:1 orthographic iso projection. The camera looks north
-// from the south, down at ~40 deg, with a vertical exaggeration (ZS) so
-// walls, props and the Warden read as tall structures instead of a flat
-// diamond. All call sites keep the old signatures: iso(x, y, z) -> screen
-// {x, y, d}, screenToWorld(sx, sy) -> logical {x, y}, depthOf(x, y) -> a
-// sort key where larger = nearer (far items drawn first), isoDiamond /
-// extrudeBox / isoShadow draw in screen space from projected corners.
-// extrudeBox keeps the old convention: (x, y) is the footprint's
-// north-west corner, w/h the logical footprint, z the height.
+// from the south, down at ~50 deg (eye raised from the v1 40 deg: a
+// steeper downward view FLATTENS the perspective — weaker vanishing-point
+// convergence, taller floor band, shorter walls — which is what reads as
+// calm instead of dizzying). Vertical exaggeration (ZS) makes walls, props
+// and the Warden read as tall structures instead of a flat diamond. All
+// call sites keep the old signatures: iso(x, y, z) -> screen {x, y, d},
+// screenToWorld(sx, sy) -> logical {x, y}, depthOf(x, y) -> a sort key
+// where larger = nearer (far items drawn first), isoDiamond / extrudeBox /
+// isoShadow draw in screen space from projected corners. extrudeBox keeps
+// the old convention: (x, y) is the footprint's north-west corner, w/h the
+// logical footprint, z the height.
 export const ISO_S = 0.78; // kept for compatibility; no longer used
 
-const CX = 640, CY = 360, F = 1100;
-const EX = 640, EY = 355 + 950, EZ = 800; // camera eye
+const CX = 640, CY = 360, F = 1900;
+const EX = 640, EY = 355 + 950, EZ = 1150; // camera eye
 const ZS = 1.6; // vertical exaggeration for z heights
 // Forward (eye -> target (640,355,0)), normalized.
-const _fl = Math.hypot(0, -950, -800);
-const FWD = [0, -950 / _fl, -800 / _fl];
+const _fl = Math.hypot(0, -950, -EZ);
+const FWD = [0, -950 / _fl, -EZ / _fl];
 // Right = up x fwd  (screen-right = world +x).
 let R = [0 * FWD[2] - 1 * FWD[1], 1 * FWD[0] - 0 * FWD[2], 0 * FWD[1] - 0 * FWD[0]];
 const _rl = Math.hypot(R[0], R[1], R[2]);

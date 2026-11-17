@@ -329,6 +329,14 @@ export function drawThief(ctx, x, y, color, opts = {}) {
   const top = iso(x, y, 36);
   ctx.save();
   ctx.globalAlpha = alpha;
+  // 1.6x visual scale: the whole figure is drawn in screen space scaled
+  // around its foot point — the logical collision radius is unchanged.
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.scale(1.6, 1.6);
+  ctx.translate(-c.x, -c.y);
+  // Bright ground ring beneath the feet, in the figure's own color.
+  groundEllipse(ctx, x, y, 24, null, color, 3);
   // Long, soft directional drop-shadow.
   isoShadow(ctx, x, y, 16, 7, 0.45);
   // Holographic scarf: a sine ribbon trailing behind the movement direction.
@@ -425,6 +433,7 @@ export function drawThief(ctx, x, y, color, opts = {}) {
     ctx.textBaseline = 'middle';
     ctx.fillText(tag, c.x, top.y - 22.5);
   }
+  ctx.restore(); // end 1.6x scale
   ctx.restore();
 }
 
@@ -437,7 +446,7 @@ export function drawTurret(ctx, t, time) {
   // ground wedge plus a narrower hot core — projected onto the floor, so
   // it foreshortens with the perspective camera instead of floating.
   if (t.disabledT <= 0) {
-    for (const [spread, col] of [[0.34, 'rgba(239,68,68,0.20)'], [0.16, 'rgba(251,146,60,0.22)']]) {
+    for (const [spread, col] of [[0.34, 'rgba(239,68,68,0.12)'], [0.16, 'rgba(251,146,60,0.14)']]) {
       const l = iso(t.x + Math.cos(t.angle - spread) * t.range, t.y + Math.sin(t.angle - spread) * t.range);
       const r = iso(t.x + Math.cos(t.angle + spread) * t.range, t.y + Math.sin(t.angle + spread) * t.range);
       ctx.save();
@@ -555,6 +564,14 @@ export function drawWarden(ctx, w, time) {
   ctx.save();
   // Long cast shadow.
   isoShadow(ctx, x, y, 50, 17, 0.5);
+  // 1.6x visual scale for the BODY only (legs, hex core, dial, eye, gear
+  // crown), in screen space around the base point. The sweep arms and the
+  // telegraph are range indicators, so their logical lengths are divided
+  // by 1.6 below — the scaled beam still spans the true 200 range.
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.scale(1.6, 1.6);
+  ctx.translate(-c.x, -c.y);
   // Piston legs.
   for (let k = -1; k <= 1; k++) {
     const lb = iso(x + k * 36, y + 19);
@@ -568,7 +585,7 @@ export function drawWarden(ctx, w, time) {
   for (let k = 0; k < 2; k++) {
     const a = w.armAngle + k * Math.PI;
     const b = iso(x, y, 36);
-    const tip = iso(x + Math.cos(a) * 190, y + Math.sin(a) * 190, 34);
+    const tip = iso(x + Math.cos(a) * 119, y + Math.sin(a) * 119, 34);
     // Live sweep beam.
     if (w.state === 'sweep') {
       ctx.save();
@@ -625,7 +642,7 @@ export function drawWarden(ctx, w, time) {
   if (w.state === 'telegraph') {
     ctx.save();
     ctx.setLineDash([10, 8]);
-    groundEllipse(ctx, x, y, 135, null, 'rgba(239,68,68,0.45)', 3);
+    groundEllipse(ctx, x, y, 84, null, 'rgba(239,68,68,0.45)', 3);
     ctx.setLineDash([]);
     ctx.restore();
   }
@@ -700,7 +717,9 @@ export function drawWarden(ctx, w, time) {
     ctx.fill();
   }
   // Shield dome: a dashed gold projected ellipse while guarded, a solid
-  // cracked red ring once the shield is down for good.
+  // cracked red ring once the shield is down for good. Drawn unscaled, so
+  // the dome keeps its true 52 radius on the floor.
+  ctx.restore(); // end 1.6x body scale
   ctx.save();
   if (w.shield) {
     groundEllipse(ctx, x, y, 52, 'rgba(251,191,36,0.05)', null);
@@ -710,8 +729,8 @@ export function drawWarden(ctx, w, time) {
     groundEllipse(ctx, x, y, 52, null, 'rgba(239,68,68,0.9)', 3);
   }
   ctx.restore();
-  // HP bar above.
-  const hpTop = iso(x, y, 104);
+  // HP bar above (raised: the 1.6x body + gear crown now reach higher).
+  const hpTop = iso(x, y, 130);
   ctx.save();
   ctx.fillStyle = 'rgba(10,14,26,0.85)';
   ctx.beginPath();
@@ -724,7 +743,14 @@ export function drawWarden(ctx, w, time) {
   ctx.fillStyle = '#e8ecff';
   ctx.font = 'bold 10px Georgia, serif';
   ctx.textAlign = 'center';
-  ctx.fillText(w.shield ? 'THE CHRONO-WARDEN · SHIELDED' : 'THE CHRONO-WARDEN · VULNERABLE', hpTop.x, hpTop.y - 28);
+  const lt = w.shield ? 'THE CHRONO-WARDEN · SHIELDED' : 'THE CHRONO-WARDEN · VULNERABLE';
+  const lw = ctx.measureText(lt).width + 16;
+  ctx.fillStyle = 'rgba(8,12,24,0.92)';
+  ctx.beginPath();
+  ctx.roundRect(hpTop.x - lw / 2, hpTop.y - 40, lw, 18, 9);
+  ctx.fill();
+  ctx.fillStyle = '#e8ecff';
+  ctx.fillText(lt, hpTop.x, hpTop.y - 28);
   ctx.restore();
   ctx.restore();
 }

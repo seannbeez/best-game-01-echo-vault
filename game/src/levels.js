@@ -60,7 +60,7 @@ export function buildStage(n, rng) {
     S.plates.push(plate(470, 341, 'A'));
     S.lasers.push(laser(A.x, 520, 700, 520, 'A'));
     S.cores.push(core(300, 150), core(920, 150), core(1000, 560));
-    S.glass.push(glass(700, 200, 90, 10));
+    S.glass.push(glass(700, 200, 90, 10), glass(900, 420, 90, 10));
   } else if (n === 2) {
     S.walls.push(wall(A.x, 347, 440, 16), wall(596, 347, 488, 16));
     S.doors.push(door(500, 347, 96, 16, 'A'));
@@ -71,6 +71,7 @@ export function buildStage(n, rng) {
     S.turrets.push(turret(960, 140));
     S.terminals.push(terminal(250, 120, 'T1'));
     S.cores.push(core(300, 150), core(700, 570), core(1020, 560));
+    S.glass.push(glass(500, 150, 90, 10), glass(700, 520, 90, 10));
   } else if (n === 3) {
     S.walls.push(wall(420, A.y, 16, 200), wall(420, 300, 16, A.h - 234));
     S.doors.push(door(420, 266, 16, 34, 'A'));
@@ -84,7 +85,7 @@ export function buildStage(n, rng) {
     S.mirrors.push(mirror(640, 200, 0.6));
     S.terminals.push(terminal(250, 120, 'T1'));
     S.cores.push(core(280, 140), core(1000, 140), core(640, 580));
-    S.glass.push(glass(500, 500, 90, 10));
+    S.glass.push(glass(500, 500, 90, 10), glass(760, 120, 90, 10));
   } else if (n === 4) {
     S.walls.push(wall(500, A.y, 16, 180), wall(500, 280, 16, A.h - 214));
     S.doors.push(door(500, 246, 16, 34, 'A'));
@@ -99,6 +100,7 @@ export function buildStage(n, rng) {
     S.jammers.push(jammer(640, 355, 85));
     S.terminals.push(terminal(250, 120, 'T1'));
     S.cores.push(core(280, 140), core(1000, 140), core(640, 580));
+    S.glass.push(glass(600, 420, 90, 10), glass(300, 300, 90, 10));
   } else if (n === 5) {
     // Multi-lock: the vault door needs plates A AND B at the same time.
     S.walls.push(wall(640, A.y, 16, 240), wall(640, 380, 16, A.h - 314));
@@ -114,6 +116,7 @@ export function buildStage(n, rng) {
     S.jammers.push(jammer(640, 355, 80));
     S.terminals.push(terminal(250, 120, 'T1'));
     S.cores.push(core(280, 140), core(1000, 140), core(640, 580));
+    S.glass.push(glass(760, 300, 90, 10), glass(420, 350, 90, 10));
   } else if (n === 6) {
     S.walls.push(wall(420, A.y, 16, 160), wall(420, 260, 16, A.h - 194));
     S.doors.push(door(420, 226, 16, 34, 'A'));
@@ -135,6 +138,7 @@ export function buildStage(n, rng) {
     S.mirrors.push(mirror(640, 200, -0.5));
     S.terminals.push(terminal(250, 120, 'T1'));
     S.cores.push(core(280, 140), core(1000, 140), core(640, 580));
+    S.glass.push(glass(640, 340, 90, 10), glass(940, 420, 90, 10));
   } else {
     // Stage 7 — THE CHRONO-WARDEN. Open chamber, the sentinel at the center,
     // three power cells to channel, three node plates that pin its arms.
@@ -151,7 +155,7 @@ export function buildStage(n, rng) {
     S.turrets.push(turret(640, 120), turret(1030, 350));
     S.mines.push(mine(480, 300), mine(800, 300), mine(480, 430), mine(800, 430));
     S.terminals.push(terminal(250, 355, 'T1'));
-    S.glass.push(glass(300, 500, 90, 10), glass(980, 500, 90, 10));
+    S.glass.push(glass(300, 500, 90, 10), glass(980, 500, 90, 10), glass(640, 240, 90, 10));
   }
   // Deterministic scatter: a few gold conduit sparks are seeded per stage.
   S.sparks = [];

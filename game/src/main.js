@@ -383,7 +383,7 @@ class Game {
 
   addCallout(x, y, text, color) {
     this.callouts.push({ x, y, text, color, life: 1.6, max: 1.6 });
-    if (this.callouts.length > 6) this.callouts.shift();
+    if (this.callouts.length > 4) this.callouts.shift();
   }
 
   // --- Frame update -------------------------------------------------------------
@@ -631,6 +631,8 @@ class Game {
       this.stage.turrets[0].angle = 0.4;
     } else if (name === 'draft') {
       this.state.screen = 'draft';
+      this.player.x = 400;
+      this.player.y = 600;
       this.state.stage = 3;
       this.state.score = 8600;
       this.state.mods = [MODS[4], MODS[5], MODS[7], MODS[3]];
