@@ -132,9 +132,10 @@ function drawFloorStatic(ctx) {
       for (const [rx, ry] of [[0, -hh], [hw, 0], [0, hh], [-hw, 0]]) {
         ctx.fillRect(p.x + rx - 1, p.y + ry - 1, 2, 2);
       }
-      // Edge-lit panel: one glowing edge per chosen tile.
+      // Edge-lit panel: one glowing edge per chosen tile — more of them in
+      // the middle band, so the diorama's center reads as lit, not empty.
       const lit = hash01(tx * 13.7 + ty * 7.3 + 0.5);
-      if (lit < 0.14) {
+      if (lit < (ty >= 2 && ty <= 4 ? 0.34 : 0.14)) {
         ctx.strokeStyle = lit < 0.07 ? 'rgba(34,211,238,0.5)' : 'rgba(251,191,36,0.45)';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -177,6 +178,69 @@ function drawFloorStatic(ctx) {
   ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
   ctx.stroke();
   ctx.restore();
+  // Crossing conduits through the middle: a gold spine along logical y=355
+  // and a cyan spine along logical x=640, meeting at the central seal.
+  ctx.save();
+  ctx.strokeStyle = 'rgba(251,191,36,0.4)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  let m1 = iso(ARENA.x, ARENA.y + ARENA.h / 2);
+  let m2 = iso(ARENA.x + ARENA.w, ARENA.y + ARENA.h / 2);
+  ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(34,211,238,0.34)';
+  ctx.beginPath();
+  m1 = iso(ARENA.x + ARENA.w / 2, ARENA.y);
+  m2 = iso(ARENA.x + ARENA.w / 2, ARENA.y + ARENA.h);
+  ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y);
+  ctx.stroke();
+  ctx.restore();
+  // Central vault seal: concentric glowing rings + hazard chevrons on the
+  // floor plane, marking the heart of the vault. Flat floor art (painted
+  // into the cache), so it can never cover a plate, core, or character.
+  const sc = iso(ARENA.x + ARENA.w / 2, ARENA.y + ARENA.h / 2);
+  const sg = ctx.createRadialGradient(sc.x, sc.y, 10, sc.x, sc.y, 170);
+  sg.addColorStop(0, 'rgba(34,211,238,0.10)');
+  sg.addColorStop(1, 'rgba(34,211,238,0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(sc.x - 170, sc.y - 110, 340, 220);
+  const sealPath = (r) => {
+    ctx.beginPath();
+    ctx.moveTo(sc.x, sc.y - r * 0.5 * ISO_S);
+    ctx.lineTo(sc.x + r * 0.866 * ISO_S, sc.y);
+    ctx.lineTo(sc.x, sc.y + r * 0.5 * ISO_S);
+    ctx.lineTo(sc.x - r * 0.866 * ISO_S, sc.y);
+    ctx.closePath();
+  };
+  ctx.strokeStyle = 'rgba(251,191,36,0.7)';
+  ctx.lineWidth = 4.5;
+  sealPath(130); ctx.stroke();
+  ctx.strokeStyle = 'rgba(34,211,238,0.7)';
+  ctx.lineWidth = 3;
+  sealPath(96); ctx.stroke();
+  ctx.strokeStyle = 'rgba(251,191,36,0.4)';
+  ctx.lineWidth = 2;
+  sealPath(64); ctx.stroke();
+  // Filled center emblem: a glowing cyan diamond at the seal's heart.
+  ctx.fillStyle = 'rgba(34,211,238,0.16)';
+  sealPath(40); ctx.fill();
+  ctx.strokeStyle = 'rgba(34,211,238,0.6)';
+  ctx.lineWidth = 2;
+  sealPath(40); ctx.stroke();
+  // Hazard chevrons around the seal rim.
+  ctx.fillStyle = 'rgba(251,191,36,0.4)';
+  for (let i = 0; i < 8; i++) {
+    const an = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const px = sc.x + Math.cos(an) * 113 * 0.866 * ISO_S;
+    const py = sc.y + Math.sin(an) * 113 * 0.5 * ISO_S;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(an);
+    ctx.beginPath();
+    ctx.moveTo(-6, -4); ctx.lineTo(0, 0); ctx.lineTo(-6, 4);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
   // Brass inlay rim around the chamber.
   ctx.strokeStyle = 'rgba(251,191,36,0.6)';
   ctx.lineWidth = 3;
@@ -1275,6 +1339,86 @@ function titleHeaderSprite() {
   return c;
 }
 
+// Title centerpiece (cached sprite): a glass containment column with a
+// glowing core, two low glass partitions, and floor furniture in the middle
+// of the diorama — painted once, stamped UNDER the demo echoes (in
+// drawAttract, before their paths) so it never covers an echo, a tag, or
+// the stage-1 laser. Title screen only; zero per-frame cost beyond one blit.
+let titleCenterpiece = null;
+function titleCenterpieceSprite() {
+  if (titleCenterpiece) return titleCenterpiece;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  // Glass containment column at logical (640,430): extruded glass with a
+  // gold top rail and a glowing cyan core. Base screen ~(589,389), top
+  // ~y 325 — clear of the logo, the HOW TO PLAY panels (y 428+), and the
+  // stage-1 laser (ends x 569, y 448).
+  isoShadow(x, 640, 430, 22, 11, 0.4);
+  extrudeBox(x, 628, 418, 24, 24, 64,
+    'rgba(103,232,249,0.32)', 'rgba(103,232,249,0.18)', 'rgba(103,232,249,0.10)');
+  const ct1 = iso(628, 418, 64);
+  const ct2 = iso(652, 418, 64);
+  const ct3 = iso(652, 442, 64);
+  const ct4 = iso(628, 442, 64);
+  x.strokeStyle = 'rgba(251,191,36,0.6)';
+  x.lineWidth = 2;
+  x.beginPath();
+  x.moveTo(ct1.x, ct1.y); x.lineTo(ct2.x, ct2.y);
+  x.lineTo(ct3.x, ct3.y); x.lineTo(ct4.x, ct4.y);
+  x.closePath(); x.stroke();
+  // Gold base ring around the column's foot.
+  const cb1 = iso(628, 418, 0);
+  const cb2 = iso(652, 418, 0);
+  const cb3 = iso(652, 442, 0);
+  const cb4 = iso(628, 442, 0);
+  x.strokeStyle = 'rgba(251,191,36,0.55)';
+  x.lineWidth = 2.5;
+  x.beginPath();
+  x.moveTo(cb1.x, cb1.y); x.lineTo(cb2.x, cb2.y);
+  x.lineTo(cb3.x, cb3.y); x.lineTo(cb4.x, cb4.y);
+  x.closePath(); x.stroke();
+  // Glowing core: vertical beam sprite inside the column + a glow at its top.
+  const coreTop = iso(640, 430, 64);
+  x.save();
+  x.globalCompositeOperation = 'lighter';
+  x.drawImage(vbeamSprite('34,211,238', 10, 70, 0.8), coreTop.x - 5, coreTop.y - 70);
+  drawGlow(x, glowSprite('#22d3ee', { a0: 0.7 }), coreTop.x, coreTop.y - 6, 26);
+  x.restore();
+  // Low glass partitions across the middle (same style as stage glass).
+  for (const [gx, gy, gw] of [[400, 230, 160], [720, 180, 160]]) {
+    extrudeBox(x, gx, gy, gw, 10, 30,
+      'rgba(103,232,249,0.20)', 'rgba(103,232,249,0.10)', 'rgba(103,232,249,0.06)');
+    const g1 = iso(gx, gy, 30);
+    const g2 = iso(gx + gw, gy, 30);
+    const g3 = iso(gx + gw, gy + 10, 30);
+    const g4 = iso(gx, gy + 10, 30);
+    x.strokeStyle = 'rgba(103,232,249,0.7)';
+    x.lineWidth = 1.5;
+    x.beginPath();
+    x.moveTo(g1.x, g1.y); x.lineTo(g2.x, g2.y);
+    x.lineTo(g3.x, g3.y); x.lineTo(g4.x, g4.y);
+    x.closePath(); x.stroke();
+    x.strokeStyle = 'rgba(251,191,36,0.55)';
+    x.lineWidth = 2;
+    x.beginPath(); x.moveTo(g1.x, g1.y); x.lineTo(g2.x, g2.y); x.stroke();
+    x.strokeStyle = 'rgba(255,255,255,0.18)';
+    x.lineWidth = 3;
+    x.beginPath();
+    x.moveTo(g1.x + 8, g1.y + 10); x.lineTo(g3.x - 8, g3.y - 4);
+    x.stroke();
+  }
+  // Floor furniture in the middle: a crate and a barrel (visual only).
+  drawProp(x, { x: 480, y: 480, kind: 'crate', seed: 0.3 }, 0);
+  drawProp(x, { x: 820, y: 480, kind: 'barrel', seed: 0.4 }, 0);
+  titleCenterpiece = c;
+  return c;
+}
+
+export function drawTitleCenterpiece(ctx) {
+  ctx.drawImage(titleCenterpieceSprite(), 0, 0);
+}
+
 export function drawTitle(ctx, G, time) {
   ctx.save();
   ctx.drawImage(titleHeaderSprite(), 0, 0);
@@ -1391,14 +1535,16 @@ function draftHeaderSprite(stage) {
 export function drawDraft(ctx, G) {
   const st = G.state;
   ctx.save();
-  ctx.fillStyle = 'rgba(5,7,13,0.72)';
+  // Light scrim (was 0.72): the arena must stay visible behind the cards —
+  // the diorama, not a black void, is what the player is standing in.
+  ctx.fillStyle = 'rgba(5,7,13,0.20)';
   ctx.fillRect(0, 0, W, H);
   ctx.drawImage(draftHeaderSprite(st.stage), 0, 0);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   st.draft.forEach((m, i) => {
     const x = 640 - 3 * 140 + i * 290 + 15, y = 168, w = 260, h = 330;
-    ctx.fillStyle = 'rgba(10,14,26,0.92)';
+    ctx.fillStyle = 'rgba(10,14,26,0.68)';
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, 12);
     ctx.fill();
@@ -1508,10 +1654,11 @@ function victoryHeaderSprite() {
 export function drawVictory(ctx, G) {
   const st = G.state;
   ctx.save();
-  ctx.fillStyle = 'rgba(5,7,13,0.6)';
+  // Light scrim (was 0.6): the denser diorama must show around the modal.
+  ctx.fillStyle = 'rgba(5,7,13,0.15)';
   ctx.fillRect(0, 0, W, H);
   const bx = 640 - 290, by = 66, bw = 580, bh = 500;
-  ctx.fillStyle = 'rgba(10,14,26,0.94)';
+  ctx.fillStyle = 'rgba(10,14,26,0.72)';
   ctx.beginPath();
   ctx.roundRect(bx, by, bw, bh, 14);
   ctx.fill();

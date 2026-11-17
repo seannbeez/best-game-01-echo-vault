@@ -557,6 +557,9 @@ class Game {
   }
 
   drawAttract(ctx) {
+    // The title centerpiece (glass column, partitions, furniture) sits
+    // under the demo echoes, so it never covers them or their paths.
+    R.drawTitleCenterpiece(ctx);
     // The demo echoes replay on the title screen, with their dotted paths.
     for (const e of this.echoes) {
       const pts = e.futurePath(this.loopElapsed, 1.2, 0.12);
