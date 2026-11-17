@@ -892,27 +892,57 @@ function drawTethers(ctx, G, time) {
     const n = iso(w.x + Math.cos(best) * 52, w.y + Math.sin(best) * 52, 24);
     const s = iso(e.x, e.y, 42);
     const pulse = 0.75 + 0.25 * Math.sin(time * 5 + e.idx * 1.7);
-    ctx.strokeStyle = e.color + '2e';
+    ctx.strokeStyle = e.color + '1f';
+    ctx.lineWidth = 18;
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(n.x, n.y);
+    ctx.stroke();
+    ctx.strokeStyle = e.color + '4d';
     ctx.lineWidth = 10;
     ctx.beginPath();
     ctx.moveTo(s.x, s.y);
     ctx.lineTo(n.x, n.y);
     ctx.stroke();
-    ctx.strokeStyle = e.color + '66';
+    ctx.strokeStyle = e.color + 'd9';
     ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.moveTo(s.x, s.y);
     ctx.lineTo(n.x, n.y);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(254,243,199,' + (0.9 * pulse).toFixed(2) + ')';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(254,243,199,' + (0.95 * pulse).toFixed(2) + ')';
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(s.x, s.y);
     ctx.lineTo(n.x, n.y);
     ctx.stroke();
+    dot(ctx, s.x, s.y, 4, '#fef3c7');
     const tt = (time * 0.45 + e.idx * 0.25) % 1;
-    dot(ctx, s.x + (n.x - s.x) * tt, s.y + (n.y - s.y) * tt, 3.5, '#fff');
-    dot(ctx, n.x, n.y, 4, GOLD);
+    dot(ctx, s.x + (n.x - s.x) * tt, s.y + (n.y - s.y) * tt, 5, '#fff');
+    dot(ctx, n.x, n.y, 6, GOLD);
+  }
+  // Corner prism reflections: bright rays from the 4 screen corners to the core.
+  const core = iso(w.x, w.y, 48);
+  const corners = [[0, 0, CYAN], [W, 0, GOLD], [0, H, GOLD], [W, H, CYAN]];
+  for (const [cx, cy, col] of corners) {
+    const tx = core.x + (cx < W / 2 ? -30 : 30);
+    const ty = core.y + (cy < H / 2 ? -18 : 18);
+    ctx.strokeStyle = col + '38';
+    ctx.lineWidth = 14;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.strokeStyle = col + '8c';
+    ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke();
+    const ix = cx < W / 2 ? 16 : W - 16, iy = cy < H / 2 ? 16 : H - 16;
+    glowAt(ctx, glowSprite(col, { a0: 0.8 }), ix, iy, 18);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(ix, iy - 6); ctx.lineTo(ix + 6, iy); ctx.lineTo(ix, iy + 6); ctx.lineTo(ix - 6, iy);
+    ctx.closePath(); ctx.fill();
+    dot(ctx, tx, ty, 3.5, '#fff');
   }
   ctx.restore();
 }
@@ -1197,9 +1227,9 @@ export function drawTitle(ctx, G, time) {
     ctx.fillStyle = t[2];
     ctx.beginPath(); ctx.arc(1098, y - 2, 5, 0, Math.PI * 2); ctx.fill();
     text(ctx, t[0], 1110, y - 2, F11, INK, 'left');
-    text(ctx, t[1], 1110, y + 12, R10, MUTE, 'left');
+    text(ctx, t[1], 1110, y + 12, R10, PALE, 'left');
   });
-  text(ctx, 'DIFFICULTY', 640, 488, F11, MUTE);
+  text(ctx, 'DIFFICULTY', 640, 488, F11, PALE);
   const diffs = [['CALM', '×0.75'], ['HEIST', '×1'], ['NIGHTMARE', '×1.5']];
   diffs.forEach((d, i) => {
     const x = 445 + i * 135, sel = G.diff === d[0];
@@ -1320,7 +1350,7 @@ export function drawDraft(ctx, G) {
     ctx.strokeStyle = done ? GREEN : next ? GOLD : SLATE;
     ctx.lineWidth = next ? 3 : 1.5; ctx.stroke();
     text(ctx, done ? '✓' : 'V' + (i + 1), nx, 176, F10, done || next ? DARKT : MUTE);
-    text(ctx, STAGE_NAMES[i + 1], nx, 198, R9, next ? GOLD : MUTE);
+    text(ctx, STAGE_NAMES[i + 1], nx, 198, R10, next ? GOLD : PALE);
   }
   text(ctx, 'NEXT: VAULT ' + (st.stage + 1) + ' — ' + STAGE_NAMES[st.stage + 1] + ' · NEW: ' + NEXT_NEW[st.stage + 1], 640, 214, F12, CYAN);
   st.draft.forEach((m, i) => {
@@ -1368,11 +1398,11 @@ export function drawDraft(ctx, G) {
     ctx.fillStyle = INK;
     ctx.font = 'bold 19px Georgia, serif';
     ctx.fillText(m.name, x + w / 2, y + 178);
-    ctx.fillStyle = MUTE;
+    ctx.fillStyle = PALE;
     ctx.font = '13px Georgia, serif';
     wrapText(ctx, m.desc, x + w / 2, y + 200, w - 32, 17);
     ctx.fillStyle = GOLD;
-    ctx.font = 'italic 11px Georgia, serif';
+    ctx.font = 'italic 12px Georgia, serif';
     ctx.fillText('↗ ' + m.syn, x + w / 2, y + 232);
     ctx.fillStyle = '#1e293b';
     ctx.beginPath();

@@ -586,7 +586,7 @@ export function drawWarden(ctx, w, time) {
   for (let k = -1; k <= 1; k++) {
     const lb = iso(x + k * 36, y + 19);
     const lt = iso(x + k * 36, y + 19, 28);
-    ctx.fillStyle = '#4a4238';
+    ctx.fillStyle = '#6b5a2e';
     ctx.fillRect(lb.x - 6, lt.y, 12, lb.y - lt.y);
     ctx.fillStyle = GOLD;
     ctx.fillRect(lb.x - 6, lb.y - 6, 12, 4);
@@ -668,41 +668,65 @@ export function drawWarden(ctx, w, time) {
     hexTop.push(iso(x + Math.cos(a) * 63, y + Math.sin(a) * 63, 48));
     hexBot.push(iso(x + Math.cos(a) * 63, y + Math.sin(a) * 63, 0));
   }
-  for (let i = 0; i < 6; i++) {
-    const j = (i + 1) % 6;
-    ctx.fillStyle = i % 2 === 0 ? '#1c2740' : '#141b2e';
+  // Open luminous frame: golden halo + blazing hourglass star, NO dark fill.
+  glowAt(ctx, glowSprite(GOLD, { a0: 0.85 }), top.x, top.y, 80);
+  glowAt(ctx, glowSprite('#fde68a', { a0: 0.9 }), top.x, top.y, 55);
+  const star = (r, col, a) => {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = a;
+    ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.moveTo(hexTop[i].x, hexTop[i].y);
-    ctx.lineTo(hexTop[j].x, hexTop[j].y);
-    ctx.lineTo(hexBot[j].x, hexBot[j].y);
-    ctx.lineTo(hexBot[i].x, hexBot[i].y);
+    for (let k = 0; k < 8; k++) {
+      const an = (k / 8) * Math.PI * 2 - Math.PI / 2;
+      const rr = k % 2 === 0 ? r : r * 0.22;
+      const px = top.x + Math.cos(an) * rr * 0.8, py = top.y + Math.sin(an) * rr;
+      k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
     ctx.closePath();
     ctx.fill();
+    ctx.restore();
+  };
+  star(40, GOLD, 0.9);
+  star(28, '#f97316', 0.95);
+  star(14, '#fef3c7', 1);
+  dot(ctx, top.x, top.y, 5, '#fff');
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = 'rgba(254,243,199,0.85)';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+    ctx.beginPath();
+    ctx.moveTo(top.x + dx * 24, top.y + dy * 24);
+    ctx.lineTo(top.x + dx * 64, top.y + dy * 64);
+    ctx.stroke();
   }
-  ctx.fillStyle = '#232a42';
+  ctx.restore();
+  // Gilded hex frame, stroke only, with open edge columns (a clockwork cage).
   ctx.strokeStyle = GOLD;
   ctx.lineWidth = 3;
   ctx.beginPath();
   hexTop.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
   ctx.closePath();
-  ctx.fill();
   ctx.stroke();
-  ctx.save();
-  ctx.strokeStyle = CYAN;
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(34,211,238,0.7)';
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.ellipse(top.x, top.y, 28, 16, 0, 0, Math.PI * 2);
+  hexTop.forEach((p, i) => {
+    const qx = top.x + (p.x - top.x) * 0.8, qy = top.y + (p.y - top.y) * 0.8;
+    i === 0 ? ctx.moveTo(qx, qy) : ctx.lineTo(qx, qy);
+  });
+  ctx.closePath();
   ctx.stroke();
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + time * 0.4;
-    const s1 = iso(x + Math.cos(a) * 28, y + Math.sin(a) * 28, 48);
-    const s2 = iso(x + Math.cos(a) * 38, y + Math.sin(a) * 38, 48);
+  ctx.strokeStyle = 'rgba(251,191,36,0.8)';
+  ctx.lineWidth = 2.5;
+  for (let i = 0; i < 6; i++) {
     ctx.beginPath();
-    ctx.moveTo(s1.x, s1.y);
-    ctx.lineTo(s2.x, s2.y);
+    ctx.moveTo(hexTop[i].x, hexTop[i].y);
+    ctx.lineTo(hexBot[i].x, hexBot[i].y);
     ctx.stroke();
   }
-  ctx.restore();
   const ring = (rx, ry, rot, col) => {
     ctx.save();
     ctx.strokeStyle = col;
@@ -715,12 +739,12 @@ export function drawWarden(ctx, w, time) {
     dot(ctx, nx, ny, 3.5, col);
     ctx.restore();
   };
-  ring(42, 24, time * 0.3, 'rgba(251,191,36,0.8)');
-  ring(34, 19, -time * 0.45, 'rgba(34,211,238,0.7)');
+  ring(50, 29, time * 0.3, 'rgba(251,191,36,0.9)');
+  ring(40, 23, -time * 0.45, 'rgba(34,211,238,0.8)');
   const gaze = w.gaze || 0;
   const gx = Math.cos(gaze) * 3, gy = Math.sin(gaze) * 1.5;
   const pupilR = w.state === 'telegraph' ? 3 : w.state === 'sweep' ? 8 : w.shield ? 4 : 7;
-  const glowR = w.state === 'sweep' ? 40 : w.state === 'telegraph' ? 34 + 4 * Math.sin(time * 10) : 30;
+  const glowR = w.state === 'sweep' ? 48 : w.state === 'telegraph' ? 42 + 5 * Math.sin(time * 10) : 38;
   glowAt(ctx, glowSprite(RED, { a0: 1 }), top.x, top.y, glowR);
   ctx.fillStyle = '#7f1d1d';
   ctx.beginPath();
@@ -738,11 +762,30 @@ export function drawWarden(ctx, w, time) {
   ctx.fill();
   dot(ctx, top.x + gx, top.y + gy, pupilR, DARKT);
   dot(ctx, top.x + gx - 2, top.y + gy - 2, 1.5, '#fff');
+  // 6 articulated mechanical wings: two-segment blades, flapping slowly.
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + time * 0.25;
-    const gx = iso(x + Math.cos(a) * 63, y + Math.sin(a) * 63, 67);
-    dot(ctx, gx.x, gx.y, 7, '#8b93ad');
-    dot(ctx, gx.x, gx.y, 3, GOLD);
+    const flap = Math.sin(time * 2 + i * 1.1) * 7;
+    const b = iso(x + Math.cos(a) * 63, y + Math.sin(a) * 63, 67);
+    const j = iso(x + Math.cos(a) * 84, y + Math.sin(a) * 84, 78 + flap * 0.5);
+    const t = iso(x + Math.cos(a) * 104, y + Math.sin(a) * 104, 88 + flap);
+    const px = -(t.y - b.y), py = t.x - b.x;
+    const pl = Math.hypot(px, py) || 1;
+    const ux = px / pl, uy = py / pl;
+    ctx.fillStyle = 'rgba(251,191,36,0.92)';
+    ctx.beginPath();
+    ctx.moveTo(b.x + ux * 7, b.y + uy * 7);
+    ctx.lineTo(j.x + ux * 5, j.y + uy * 5);
+    ctx.lineTo(t.x, t.y);
+    ctx.lineTo(j.x - ux * 5, j.y - uy * 5);
+    ctx.lineTo(b.x - ux * 7, b.y - uy * 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(34,211,238,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    dot(ctx, j.x, j.y, 3.5, GOLD);
+    dot(ctx, t.x, t.y, 2.5, '#fef3c7');
   }
   ctx.restore(); // end 1.6x body scale
   ctx.save();
@@ -756,7 +799,7 @@ export function drawWarden(ctx, w, time) {
   for (const a of WARDEN_PYLONS) {
     const px = iso(x + Math.cos(a) * 52, y + Math.sin(a) * 52, 0);
     const pt = iso(x + Math.cos(a) * 52, y + Math.sin(a) * 52, 22);
-    ctx.fillStyle = w.shield ? '#3a2f14' : '#1a1214';
+    ctx.fillStyle = w.shield ? '#6b5a2e' : '#3f1d24';
     ctx.beginPath();
     ctx.moveTo(pt.x, pt.y);
     ctx.lineTo(px.x + 6, px.y);
@@ -764,8 +807,9 @@ export function drawWarden(ctx, w, time) {
     ctx.lineTo(px.x - 6, px.y);
     ctx.closePath();
     ctx.fill();
-    dot(ctx, pt.x, pt.y, 4, w.shield ? GOLD : '#7f1d1d');
-    ctx.strokeStyle = w.shield ? 'rgba(251,191,36,0.35)' : 'rgba(239,68,68,0.25)';
+    glowAt(ctx, glowSprite(w.shield ? GOLD : RED, { a0: 0.8 }), pt.x, pt.y, 16);
+    dot(ctx, pt.x, pt.y, 6, w.shield ? GOLD : '#ef4444');
+    ctx.strokeStyle = w.shield ? 'rgba(251,191,36,0.6)' : 'rgba(239,68,68,0.45)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(pt.x, pt.y);
