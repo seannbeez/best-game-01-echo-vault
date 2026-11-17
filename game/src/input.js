@@ -35,7 +35,6 @@ export class Input {
     c.addEventListener('pointerdown', (e) => {
       const p = toLocal(e);
       this.pointer.x = p.x; this.pointer.y = p.y; this.pointer.down = true; this.pointer.active = true;
-      // Left half of the screen is a virtual joystick on touch.
       if (e.pointerType === 'touch' && p.x < 560) {
         this.joy.active = true; this.joy.id = e.pointerId;
         this.joy.ox = p.x; this.joy.oy = p.y; this.joy.dx = 0; this.joy.dy = 0;
@@ -64,7 +63,6 @@ export class Input {
     c.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
-  // Read once per frame: the normalized movement vector from keys or stick.
   readMove() {
     let x = 0, y = 0;
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) x -= 1;

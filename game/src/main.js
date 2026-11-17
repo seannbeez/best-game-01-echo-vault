@@ -1,7 +1,7 @@
 // ECHO VAULT — Break Time. Steal Everything. — game core. One clear job:
 import {
   W, H, ARENA, LOOP_BASE, MAX_ECHOES, ECHO_COLORS, MODS, FEATS,
-  clamp, dist,
+  clamp, dist, CYAN, GOLD, GREEN, RED,
 } from './config.js';
 import { makeRng } from './random.js';
 import { AudioSys } from './audio.js';
@@ -17,6 +17,15 @@ import * as R from './render.js';
 
 const urlParams = new URLSearchParams(window.location.search);
 const SHOT = urlParams.get('shot');
+
+const DEMO_PERSIST = {
+  best: 24860, furthest: 7, lastGrade: 'S', workshop: 340,
+  runs: [
+    { grade: 'S', score: 24860, won: true, label: 'WON · HEIST' },
+    { grade: 'A', score: 19400, won: true, label: 'WON · HEIST' },
+    { grade: 'C', score: 11850, won: false, label: 'fell at V5 · HEIST' },
+  ],
+};
 
 class Game {
   constructor(canvas) {
@@ -55,7 +64,6 @@ class Game {
     };
   }
 
-  // Persistent bests: best score, furthest vault, last grade, last 3 runs,
   loadPersist() {
     try {
       const p = JSON.parse(localStorage.getItem('echo-vault-best') || '{}');
@@ -103,22 +111,18 @@ class Game {
       if (code === 'KeyP' && this.state.screen === 'play') {
         this.paused = !this.paused;
       }
-      // R (rewind) is handled in updatePlay via wasPressed, so dock clicks
       if (code === 'Space' || code === 'Enter' || code === 'KeyR') {
         const s = this.state.screen;
         if (s === 'title' || s === 'victory' || s === 'defeat') {
           this.startRun();
-          // A restart must not leak the same keypress into the fresh run:
           this.input.consume();
         }
       }
-      // Title difficulty: 1 CALM, 2 HEIST, 3 NIGHTMARE.
       if (this.state.screen === 'title') {
         if (code === 'Digit1') this.diff = 'CALM';
         if (code === 'Digit2') this.diff = 'HEIST';
         if (code === 'Digit3') this.diff = 'NIGHTMARE';
       }
-      // Draft: 1-3 pick a card, R rerolls for 10 shards.
       if (this.state.screen === 'draft') {
         if (code === 'Digit1' || code === 'Digit2' || code === 'Digit3') {
           const m = this.state.draft[Number(code.slice(-1)) - 1];
@@ -126,8 +130,7 @@ class Game {
         }
         if (code === 'KeyR') this.reroll();
       }
-      // Victory: S replays the same seed, Escape returns to the title.
-      if (this.state.screen === 'victory') {
+      if (this.state.screen === 'victory' || this.state.screen === 'defeat') {
         if (code === 'KeyS') this.startRun(true);
         if (code === 'Escape') this.state.screen = 'title';
       }
@@ -135,7 +138,6 @@ class Game {
     input.onPointerDown = (x, y, isTouch) => {
       this.audio.ensure();
       if (this.state.screen === 'title') {
-        // Difficulty pills (y 500-530): CALM / HEIST / NIGHTMARE.
         if (y >= 500 && y <= 530) {
           if (x >= 445 && x <= 565) this.diff = 'CALM';
           else if (x >= 580 && x <= 700) this.diff = 'HEIST';
@@ -149,7 +151,6 @@ class Game {
           const cx = 640 - 3 * 140 + i * 290 + 15;
           if (x >= cx && x <= cx + 260 && y >= 224 && y <= 514) this.pickMod(m);
         });
-        // Shop row (y 530-566): Mend +1 Integrity, Reroll.
         if (y >= 530 && y <= 566) {
           if (x >= 400 && x <= 580) this.buyMend();
           else if (x >= 600 && x <= 760) this.reroll();
@@ -165,16 +166,18 @@ class Game {
         return;
       }
       if (this.state.screen === 'defeat') {
-        if (x >= 530 && x <= 750 && y >= 380 && y <= 432) this.startRun();
+        if (y >= 626 && y <= 678) {
+          if (x >= 340 && x <= 540) this.startRun();
+          else if (x >= 560 && x <= 760) this.startRun(true);
+          else if (x >= 780 && x <= 980) this.state.screen = 'title';
+        }
         return;
       }
       if (this.state.screen !== 'play' || this.paused) return;
-      // Mute / pause pills (top-right).
       if (y >= 12 && y <= 38) {
         if (x >= 1180 && x <= 1224) { this.audio.toggleMute(); return; }
         if (x >= 1228 && x <= 1268) { this.paused = !this.paused; return; }
       }
-      // Bottom dock cards are clickable abilities.
       const dockW = 5 * 84 + 4 * 8;
       const dockX = 640 - dockW / 2;
       for (let i = 0; i < 5; i++) {
@@ -184,7 +187,6 @@ class Game {
           return;
         }
       }
-      // Otherwise: a click dashes toward the pointer (touch: right half only,
       if (!(isTouch && x < 560)) {
         this.input.pointer.x = x;
         this.input.pointer.y = y;
@@ -194,7 +196,6 @@ class Game {
   }
 
   pressAbility(i) {
-    // Route a dock click through the same keys the keyboard uses.
     const code = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'KeyR'][i];
     this.input.pressed.add(code);
   }
@@ -204,7 +205,6 @@ class Game {
     this.state.screen = 'play';
     if (!sameSeed) this.runSeed = this.newSeed();
     this.runTime = 0;
-    // Never inherit stale steering: the test-drive target AND the virtual
     this.testTarget = null;
     this.input.joy.active = false;
     this.input.joy.dx = 0;
@@ -244,11 +244,10 @@ class Game {
       if (this.recordings.length >= MAX_ECHOES) this.recordings.shift();
       this.recordings.push(rec);
       this.echoes = makeEchoes(this.recordings);
-      this.addCallout(this.player.x, this.player.y - 34, `REWIND! ECHO #${this.recordings.length}`, '#22d3ee');
+      this.addCallout(this.player.x, this.player.y - 34, `REWIND! ECHO #${this.recordings.length}`, CYAN);
     }
     this.state.loopsUsed++;
     this.state.loopsThisStage++;
-    // Reset the thief to the loop start; the world keeps what was stolen.
     const s = this.stage.spawn;
     const p = this.player;
     p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0;
@@ -257,7 +256,6 @@ class Game {
     this.loopT = this.loopDuration;
     this.recorder.begin();
     this.audio.sfx('rewind');
-    // Echoes that were anchored stay anchored only for their own loop; a
     for (const e of this.echoes) { e.anchored = false; }
   }
 
@@ -276,12 +274,11 @@ class Game {
     st.syncCount++;
     st.combo = Math.min(1 + st.syncCount * 0.5, 4.5);
     st.maxSync = Math.max(st.maxSync, st.combo);
-    this.addCallout(this.player.x, this.player.y - 52, `CHRONO-SYNC! x${st.combo.toFixed(2)} COMBO`, '#fbbf24');
+    this.addCallout(this.player.x, this.player.y - 52, `CHRONO-SYNC! x${st.combo.toFixed(2)} COMBO`, GOLD);
     this.audio.sfx('sync');
   }
 
   actorsActing() {
-    // How many actors are doing something useful right now?
     let n = 0;
     const p = this.player;
     if (p.chanTarget || p.hacking || p.shieldT > 0 || p.dashT > 0) n++;
@@ -299,23 +296,22 @@ class Game {
     c.taken = true;
     this.state.coresGot++;
     this.addScore(500, 'CORE');
-    this.addCallout(c.x, c.y - 34, 'CORE EXTRACTED!', '#22d3ee');
-    this.addParticles(c.x, c.y, 24, '#22d3ee');
+    this.addCallout(c.x, c.y - 34, 'CORE EXTRACTED!', CYAN);
+    this.addParticles(c.x, c.y, 24, CYAN);
     this.audio.sfx('grab');
     if (this.actorsActing() >= 2) this.syncEvent('core');
     if (this.state.stage === 7) {
-      // All three power cells channeled: the Warden's shield drops for good.
       if (this.stage.cores.every((x) => x.taken)) {
         const w = this.stage.warden;
         w.shield = false;
         w.shieldDown = true;
-        this.addCallout(w.x, w.y - 100, 'WARDEN SHIELD BROKEN!', '#fbbf24');
+        this.addCallout(w.x, w.y - 100, 'WARDEN SHIELD BROKEN!', GOLD);
         this.addScore(400, 'SHIELD BROKEN');
         this.audio.sfx('sync');
       }
     } else if (this.state.coresGot >= this.state.coresTotal) {
       this.stage.exit.open = true;
-      this.addCallout(this.stage.exit.x, this.stage.exit.y - 40, 'EXIT OPEN!', '#34d399');
+      this.addCallout(this.stage.exit.x, this.stage.exit.y - 40, 'EXIT OPEN!', GREEN);
     }
   }
 
@@ -326,14 +322,14 @@ class Game {
     this.state.dmgDealt += amount;
     w.flash = 0.15;
     this.addScore(100, 'WARDEN HIT');
-    this.addCallout(w.x + (Math.random() * 60 - 30), w.y - 80, `SHATTER -${amount}!`, '#fbbf24');
-    this.addParticles(sx, sy, 12, '#fbbf24');
+    this.addCallout(w.x + (Math.random() * 60 - 30), w.y - 80, `SHATTER -${amount}!`, GOLD);
+    this.addParticles(sx, sy, 12, GOLD);
     this.audio.sfx('hit');
     if (w.hp <= 0) {
       w.hp = 0;
       this.stage.omega = { x: w.x, y: w.y, chan: 0 };
-      this.addCallout(w.x, w.y - 110, 'WARDEN DOWN! GRAB THE OMEGA CORE!', '#fbbf24');
-      this.addParticles(w.x, w.y, 40, '#fbbf24');
+      this.addCallout(w.x, w.y - 110, 'WARDEN DOWN! GRAB THE OMEGA CORE!', GOLD);
+      this.addParticles(w.x, w.y, 40, GOLD);
       this.addScore(1000, 'WARDEN DOWN');
       this.audio.sfx('win');
     }
@@ -369,7 +365,7 @@ class Game {
     const list = [];
     const liveTurrets = S.turrets.filter((t) => !t.dead);
     if (liveTurrets.length) {
-      list.push({ name: `Sentry Turret ×${liveTurrets.length}`, note: 'rotating', frac: liveTurrets[0].hp / 3, color: '#ef4444' });
+      list.push({ name: `Sentry Turret ×${liveTurrets.length}`, note: 'rotating', frac: liveTurrets[0].hp / 3, color: RED });
     }
     const liveLasers = S.lasers.filter((l) => l.on).length;
     if (liveLasers) list.push({ name: `Laser Grid ×${liveLasers}`, note: 'live beams', frac: null });
@@ -377,7 +373,7 @@ class Game {
     if (liveMines) list.push({ name: `Chrono-Mine ×${liveMines}`, note: 'proximity', frac: null });
     if (S.sweepers.length) list.push({ name: `Laser Sweeper ×${S.sweepers.length}`, note: 'patrolling', frac: null });
     if (S.warden && S.warden.hp > 0) {
-      list.push({ name: 'Warden Shield Nodes', note: S.warden.shield ? 'shielded' : 'BROKEN', frac: S.warden.hp / S.warden.maxHp, color: '#fbbf24' });
+      list.push({ name: 'Warden Shield Nodes', note: S.warden.shield ? 'shielded' : 'BROKEN', frac: S.warden.hp / S.warden.maxHp, color: GOLD });
     }
     return list;
   }
@@ -446,7 +442,6 @@ class Game {
     st.grade = st.score >= 12000 ? 'S' : st.score >= 9000 ? 'A' : st.score >= 6000 ? 'B' : 'C';
     st.shardsBanked = st.shards;
     this.persist.workshop += st.shards;
-    // Feats earned this run (index order matches FEATS in config.js).
     const done = [true, st.hpLeft >= st.maxHp, st.coresGot >= 21, st.maxSync >= 4, true, true, st.grade === 'S', this.diff === 'NIGHTMARE'];
     st.feats = done.map((d) => ({ done: d, isNew: d }));
     st.screen = 'victory';
@@ -493,7 +488,6 @@ class Game {
     } else if (st.screen === 'play' && !this.paused) {
       this.updatePlay(dt);
     }
-    // Particles and callouts decay on every screen.
     for (const p of this.particles) {
       p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.96; p.vy *= 0.96;
       p.life -= dt;
@@ -506,7 +500,6 @@ class Game {
   }
 
   updateAttract(dt) {
-    // Title background: the demo echoes replay their heist on stage 1.
     this.loopElapsed = (this.loopElapsed + dt) % this.loopDuration;
     for (const e of this.echoes) e.update(this.loopElapsed, dt);
     for (const t of this.stage.turrets) t.angle += dt * 0.3;
@@ -520,7 +513,6 @@ class Game {
     if (this.loopT <= 0) { this.rewind(); return; }
     if (this.input.wasPressed('KeyR')) { this.rewind(true); return; }
 
-    // Test-drive steering: move the thief toward a target point.
     if (this.testTarget) {
       const p = this.player;
       const d = dist(p.x, p.y, this.testTarget.x, this.testTarget.y);
@@ -535,13 +527,11 @@ class Game {
         this.input.joy.dy = Math.sin(a);
       }
     }
-    // (Touch joystick state is left alone when no test target is set.)
 
     updatePlayer(this, dt);
     for (const e of this.echoes) e.update(this.loopElapsed, dt);
     this.recorder.sample(this.loopElapsed, this.player);
 
-    // Plates: held by the thief or by whichever echo stands on them.
     for (const pl of S.plates) {
       pl.heldBy = null;
       if (dist(this.player.x, this.player.y, pl.x, pl.y) < pl.r + 12) pl.heldBy = 'you';
@@ -551,7 +541,6 @@ class Game {
         }
       }
     }
-    // Doors open when their plates are held ('V' needs A and B together).
     for (const d of S.doors) {
       if (d.needTwo) {
         d.open = S.plates.some((p) => p.link === 'A' && p.heldBy) &&
@@ -560,27 +549,22 @@ class Game {
         d.open = S.plates.some((p) => p.link === d.link && p.heldBy);
       }
     }
-    // Laser grids switch off while their plate is held.
     for (const l of S.lasers) {
       l.on = l.link ? !S.plates.some((p) => p.link === l.link && p.heldBy) : true;
     }
-    // Laser contact damage (dash and shield both protect).
     const p = this.player;
     for (const l of S.lasers) {
       if (!l.on) continue;
       if (this.segDist(p.x, p.y, l.x1, l.y1, l.x2, l.y2) < p.r + 2) {
-        damagePlayer(this, 1, (l.x1 + l.x2) / 2, (l.y1 + l.y2) / 2);
+        damagePlayer(this, 1, (l.x1 + l.x2) / 2, (l.y1 + l.y2) / 2, 'LASER GRID');
       }
     }
-    // Terminal hack timers.
     for (const t of S.terminals) t.hackedT = Math.max(0, t.hackedT - dt);
-    // Turrets, mines, sweepers, Warden.
     for (const t of S.turrets) if (!t.dead) updateTurret(this, t, dt);
     S.turrets = S.turrets.filter((t) => !t.dead);
     updateMines(this, dt);
     updateSweepers(this, dt);
     if (S.warden) updateWarden(this, dt);
-    // Echoes channel cores by standing at the pods (co-op extraction).
     for (const e of this.echoes) {
       for (const c of S.cores) {
         if (c.taken) continue;
@@ -590,7 +574,6 @@ class Game {
         }
       }
     }
-    // Phase Dash trails damage turrets and the Warden (mod).
     if (this.hasMod('phase')) {
       for (const e of this.echoes) {
         if (!e.dash) continue;
@@ -599,12 +582,10 @@ class Game {
         }
       }
     }
-    // Exit gate (stages 1–6).
     if (S.exit && S.exit.open && dist(p.x, p.y, S.exit.x, S.exit.y) < 36) {
       this.stageClear();
       return;
     }
-    // Omega Core (stage 7).
     if (S.omega) {
       const o = S.omega;
       if (dist(p.x, p.y, o.x, o.y) < 52) {
@@ -637,7 +618,6 @@ class Game {
     else if (st.screen === 'victory') R.drawVictory(ctx, this);
     else if (st.screen === 'defeat') R.drawDefeat(ctx, this);
     if (this.paused && st.screen === 'play') R.drawPause(ctx);
-    // Touch joystick.
     if (this.input.joy.active) {
       ctx.save();
       ctx.strokeStyle = 'rgba(232,236,255,0.5)';
@@ -654,7 +634,6 @@ class Game {
   }
 
   drawAttract(ctx) {
-    // The demo echoes replay on the title screen, with their dotted paths.
     for (const e of this.echoes) {
       const pts = e.futurePath(this.loopElapsed, 1.2, 0.12);
       ctx.save();
@@ -673,8 +652,9 @@ class Game {
     for (const t of this.stage.turrets) if (!t.dead) drawTurret(ctx, t, this.time);
     for (const e of this.echoes) {
       drawThief(ctx, e.x, e.y, e.color, {
-        face: Math.atan2(e.vy, e.vx), alpha: 0.92, tag: 'ECHO ' + (e.idx + 1),
-        time: this.time, shield: e.shield,
+        face: Math.atan2(e.vy, e.vx), alpha: 0.92,
+        time: this.time, shield: e.shield, vx: e.vx, vy: e.vy,
+        pose: e.dash ? 'dash' : e.shield ? 'deflect' : e.hack ? 'plate' : 'idle',
       });
     }
   }
@@ -686,15 +666,7 @@ class Game {
       this.echoes = this.makeDemoEchoes();
       this.loopElapsed = 2.2;
       this.loopT = 5.8;
-      // Staged persistent stats (real runs read localStorage instead).
-      this.persist = {
-        best: 24860, furthest: 7, lastGrade: 'S', workshop: 340,
-        runs: [
-          { grade: 'S', score: 24860, won: true, label: 'WON · HEIST' },
-          { grade: 'A', score: 19400, won: true, label: 'WON · HEIST' },
-          { grade: 'C', score: 11850, won: false, label: 'fell at V5 · HEIST' },
-        ],
-      };
+      this.persist = DEMO_PERSIST;
     } else if (name === 'boss') {
       this.startStage(7);
       const st = this.state;
@@ -707,16 +679,15 @@ class Game {
       st.coresGot = 3;
       st.shards = 180;
       st.mods = [MODS[4], MODS[1], MODS[2], MODS[6]];
-      // All three power cells extracted: the shield is down for good.
       for (const c of this.stage.cores) { c.taken = true; c.chan = 1; }
       const w = this.stage.warden;
       w.shield = false;
       w.shieldDown = true;
+      w.gaze = 2.38;
       w.hp = 180; // PHASE 2/3
       w.state = 'telegraph';
       w.teleT = 0.8;
       w.armAngle = 0.5;
-      // Four staged echoes: three pinning the node plates, one deflecting.
       this.echoes = this.makeStagedBossEchoes();
       this.recordings = this.echoes.map((e) => e.recording);
       this.loopElapsed = 2.8;
@@ -726,8 +697,8 @@ class Game {
       this.player.face = 0.6;
       this.player.dashT = 0.1;
       this.callouts = [];
-      this.addCallout(430, 210, 'WARDEN SHIELD BROKEN!', '#fbbf24');
-      this.addCallout(700, 150, 'SWEEP IN 0.8s — DIVE!', '#ef4444');
+      this.addCallout(430, 210, 'WARDEN SHIELD BROKEN!', GOLD);
+      this.addCallout(700, 150, 'SWEEP IN 0.8s — DIVE!', RED);
       for (const c of this.callouts) { c.frozen = true; c.life = c.max; }
       this.stage.turrets[0].state = 'fire';
       this.stage.turrets[0].angle = 0.4;
@@ -769,18 +740,29 @@ class Game {
       ];
       this.runTime = 372;
       this.runSeed = 'EV-7F2A';
-      this.persist = {
-        best: 24860, furthest: 7, lastGrade: 'S', workshop: 340,
-        runs: [
-          { grade: 'S', score: 24860, won: true, label: 'WON · HEIST' },
-          { grade: 'A', score: 19400, won: true, label: 'WON · HEIST' },
-          { grade: 'C', score: 11850, won: false, label: 'fell at V5 · HEIST' },
-        ],
-      };
+      this.persist = DEMO_PERSIST;
+    } else if (name === 'defeat') {
+      const st = this.state;
+      st.screen = 'defeat';
+      st.stage = 5;
+      st.score = 11850;
+      st.coresGot = 2;
+      st.coresTotal = 3;
+      st.loopsUsed = 9;
+      st.maxSync = 3.5;
+      st.combo = 3.5;
+      st.cause = 'LASER GRID';
+      st.feats = [
+        { done: true, isNew: false }, { done: false, isNew: false },
+        { done: true, isNew: false }, { done: true, isNew: true },
+        { done: false, isNew: false }, { done: false, isNew: false },
+        { done: false, isNew: false }, { done: false, isNew: false },
+      ];
+      this.runTime = 248;
+      this.persist = DEMO_PERSIST;
     }
   }
 
-  // Synthetic recordings for the title attract: waypoint loops at constant
   makeDemoRecording(waypoints, duration, speed) {
     const samples = [];
     let t = 0;
@@ -828,7 +810,6 @@ class Game {
   }
 
   makeStagedBossEchoes() {
-    // Static-position recordings: each echo holds its post for the loop.
     const at = (x, y, flags = {}) => {
       const samples = [];
       for (let t = 0; t <= LOOP_BASE; t += 0.05) {

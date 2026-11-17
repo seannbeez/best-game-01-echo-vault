@@ -1,7 +1,6 @@
 // ECHO VAULT — shared constants, tuning, and small math helpers.
 export const W = 1280;
 export const H = 720;
-// The vault chamber the heist plays in (the floor itself is full-bleed).
 export const ARENA = { x: 196, y: 66, w: 888, h: 578 };
 export const LOOP_BASE = 8.0; // seconds per time-loop
 export const MAX_ECHOES = 4;
@@ -21,7 +20,6 @@ export const CORE_CHANNEL_TIME = 1.1; // seconds standing at a pod to extract
 export const WARDEN_HP = 300;
 export const WARDEN_VULN_TIME = 4.5; // shield-down window once all nodes held
 
-// Chrono-Mods offered in the draft (pick 1 of 3 between stages, max 5 held).
 export const MODS = [
   { id: 'overclock', name: 'Overclocked Loop', tag: '+2.0s Loop', color: '#22d3ee', icon: 'clock', fam: 'TIME', rare: 'R',
     desc: 'Every loop lasts 2.0 seconds longer. More time to steal.', syn: 'overclocks Chrono-Phase & Slow-Mo' },
@@ -41,14 +39,13 @@ export const MODS = [
     desc: 'All score gains are worth 50% more.', syn: 'greed funds every reroll' },
 ];
 
-// Title-screen bestiary: [name, one-line behaviour].
+export const WARDEN_PYLONS = [-2.51, -0.63, 1.57]; // angles from the Warden (640,355) to the N1/N2/N3 power cells
 export const THREATS = [
-  ['Sentry Turret', 'rotating beam'], ['Laser Grid', 'razor beams'],
-  ['Chrono-Mine', 'proximity blast'], ['Sweeper', 'patrolling bar'],
-  ['Jammer', 'slows you'], ['Chrono-Warden', 'shield + sweep arms'],
+  ['Sentry Turret', 'rotating beam', '#ef4444'], ['Laser Grid', 'razor beams', '#fb7185'],
+  ['Chrono-Mine', 'proximity blast', '#f59e0b'], ['Sweeper', 'patrolling bar', '#fbbf24'],
+  ['Jammer', 'slows you', '#a855f7'], ['Chrono-Warden', 'shield + sweep arms', '#e879f9'],
 ];
 
-// Victory feats: [name, how to earn it].
 export const FEATS = [
   ['First Heist', 'clear Vault 1'], ['No Damage', 'finish at full integrity'],
   ['All Cores', 'steal 21/21 cores'], ['4-Echo Sync', 'reach x4 combo'],
@@ -57,9 +54,13 @@ export const FEATS = [
 ];
 
 export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+export const F8 = 'bold 8px Georgia, serif', F9 = 'bold 9px Georgia, serif', F10 = 'bold 10px Georgia, serif', F11 = 'bold 11px Georgia, serif', F12 = 'bold 12px Georgia, serif', F13 = 'bold 13px Georgia, serif', F14 = 'bold 14px Georgia, serif', F15 = 'bold 15px Georgia, serif', F16 = 'bold 16px Georgia, serif', F20 = 'bold 20px Georgia, serif', F24 = 'bold 24px Georgia, serif', F64 = 'bold 64px Georgia, serif';
+export const R9 = '9px Georgia, serif', R10 = '10px Georgia, serif', R12 = '12px Georgia, serif', R15 = '15px Georgia, serif';
+export const PAN = 'rgba(10,14,26,0.92)', PAN88 = 'rgba(10,14,26,0.88)', PAN90 = 'rgba(10,14,26,0.9)', DARK = 'rgba(8,12,24,0.92)', INK = '#e8ecff', MUTE = '#94a3b8', PALE = '#cbd5e1';
 export function dist(x1, y1, x2, y2) { return Math.hypot(x2 - x1, y2 - y1); }
-// Deterministic pseudo-random from a stage seed, for stable staged shots.
 export function hash01(n) {
   const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return s - Math.floor(s);
 }
+export const GOLD = '#fbbf24', CYAN = '#22d3ee', GREEN = '#34d399', RED = '#ef4444', REDL = '#f87171', SLATE = '#64748b', DARKT = '#0b1020';
+export const GOLD50 = 'rgba(251,191,36,0.5)', CYAN40 = 'rgba(34,211,238,0.4)', RED40 = 'rgba(239,68,68,0.4)', GREEN25 = 'rgba(52,211,153,0.25)';

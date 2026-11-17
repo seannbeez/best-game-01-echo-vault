@@ -99,7 +99,6 @@ export class AudioSys {
     } catch { /* silent */ }
   }
 
-  // One-shot effects. `now()` is the play clock: effects duck under music.
   sfx(name) {
     if (!this.ensure() || this.muted) return;
     try {

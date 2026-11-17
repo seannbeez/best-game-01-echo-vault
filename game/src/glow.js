@@ -16,7 +16,6 @@ function makeCanvas(w, h) {
 }
 
 const glowCache = new Map();
-// Radial glow, 96x96, centered. white: white-hot center fading through the
 export function glowSprite(color, { white = false, mid = 0.35, midA = 0.7, a0 = 0.27 } = {}) {
   const key = color + '|' + (white ? 1 : 0) + '|' + mid + '|' + midA + '|' + a0;
   const hit = glowCache.get(key);
@@ -38,13 +37,11 @@ export function glowSprite(color, { white = false, mid = 0.35, midA = 0.7, a0 = 
   return c;
 }
 
-// Stamp a glow sprite centered at (x, y) with radius r.
 export function drawGlow(ctx, sprite, x, y, r) {
   ctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
 }
 
 const beamCache = new Map();
-// Vertical light beam: transparent at the top, `rgb` at maxA at the bottom.
 export function vbeamSprite(rgb, w, h, maxA) {
   const key = rgb + '|' + w + '|' + h + '|' + maxA;
   const hit = beamCache.get(key);
@@ -60,3 +57,4 @@ export function vbeamSprite(rgb, w, h, maxA) {
   return c;
 }
 
+export function glowAt(ctx, sprite, x, y, r, alpha = 1) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha *= alpha; drawGlow(ctx, sprite, x, y, r); ctx.restore(); }

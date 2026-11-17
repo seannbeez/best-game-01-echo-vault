@@ -20,7 +20,6 @@ export class EchoRecorder {
     });
   }
 
-  // Close the loop: return the recording (or null if too short to matter).
   finish(duration) {
     this.recording = false;
     if (this.samples.length < 10) return null;
@@ -28,7 +27,6 @@ export class EchoRecorder {
   }
 }
 
-// A replaying Echo. sampleAt(t) interpolates between recorded frames.
 export class Echo {
   constructor(idx, recording) {
     this.idx = idx;
@@ -49,7 +47,6 @@ export class Echo {
     const s = this.recording.samples;
     if (t <= s[0].t) return s[0];
     if (t >= s[s.length - 1].t) return s[s.length - 1];
-    // Binary search for the surrounding pair.
     let lo = 0, hi = s.length - 1;
     while (hi - lo > 1) {
       const mid = (lo + hi) >> 1;
@@ -78,7 +75,6 @@ export class Echo {
     this.trail = this.trail.filter((p) => p.life > 0);
   }
 
-  // Where this Echo is about to go: a dotted predictive path from its
   futurePath(t, horizon = 1.2, step = 0.12) {
     const pts = [];
     for (let f = 0; f <= horizon; f += step) {
