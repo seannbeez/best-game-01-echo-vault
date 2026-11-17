@@ -3,7 +3,7 @@
 // One clear job: turn game state into pixels. No logic lives here.
 import { W, H, ARENA, ECHO_COLORS, clamp, lerp, hash01 } from './config.js';
 import { STAGE_NAMES } from './levels.js';
-import { iso, screenToWorld, isoDiamond, extrudeBox, isoShadow, ISO_S } from './iso.js';
+import { iso, screenToWorld, isoDiamond, extrudeBox, isoShadow, depthOf, groundEllipse } from './iso.js';
 import { drawThief, drawTurret, drawWarden, segDist } from './entities.js';
 import { glowSprite, drawGlow, vbeamSprite } from './glow.js';
 
@@ -124,13 +124,15 @@ function drawFloorStatic(ctx) {
       const shade = ((tx * 7 + ty * 13) % 3);
       const fill = shade === 0 ? '#141b2e' : shade === 1 ? '#101624' : '#171f36';
       isoDiamond(ctx, cx, cy, ts / 2, ts / 2, fill, 'rgba(120,140,180,0.14)');
+      // Projected tile corners (perspective): rivets and edge light sit on
+      // the tile's real corners, not on fixed screen offsets.
+      const cn = iso(cx, cy - ts / 2), ce = iso(cx + ts / 2, cy);
+      const cs = iso(cx, cy + ts / 2), cw = iso(cx - ts / 2, cy);
       const p = iso(cx, cy);
-      const hw = (ts / 2) * 0.866 * ISO_S;
-      const hh = (ts / 2) * 0.5 * ISO_S;
       // Rivets at the four diamond corners.
       ctx.fillStyle = 'rgba(190,210,240,0.22)';
-      for (const [rx, ry] of [[0, -hh], [hw, 0], [0, hh], [-hw, 0]]) {
-        ctx.fillRect(p.x + rx - 1, p.y + ry - 1, 2, 2);
+      for (const corner of [cn, ce, cs, cw]) {
+        ctx.fillRect(corner.x - 1, corner.y - 1, 2, 2);
       }
       // Edge-lit panel: one glowing edge per chosen tile — more of them in
       // the middle band, so the diorama's center reads as lit, not empty.
@@ -139,18 +141,19 @@ function drawFloorStatic(ctx) {
         ctx.strokeStyle = lit < 0.07 ? 'rgba(34,211,238,0.5)' : 'rgba(251,191,36,0.45)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(p.x - hw, p.y);
-        ctx.lineTo(p.x, p.y - hh);
+        ctx.moveTo(cw.x, cw.y);
+        ctx.lineTo(cn.x, cn.y);
         ctx.stroke();
       }
       // Hazard chevron on a few tiles near the chamber edge.
       if (ty === 0 && tx % 3 === 1) {
+        const dy = cs.y - p.y;
         ctx.fillStyle = 'rgba(251,191,36,0.28)';
         ctx.beginPath();
-        ctx.moveTo(p.x - 8, p.y + hh * 0.4);
-        ctx.lineTo(p.x, p.y - hh * 0.2);
-        ctx.lineTo(p.x + 8, p.y + hh * 0.4);
-        ctx.lineTo(p.x, p.y + hh * 0.1);
+        ctx.moveTo(p.x - 8, p.y + dy * 0.4);
+        ctx.lineTo(p.x, p.y - dy * 0.2);
+        ctx.lineTo(p.x + 8, p.y + dy * 0.4);
+        ctx.lineTo(p.x, p.y + dy * 0.1);
         ctx.closePath();
         ctx.fill();
       }
@@ -204,37 +207,21 @@ function drawFloorStatic(ctx) {
   sg.addColorStop(1, 'rgba(34,211,238,0)');
   ctx.fillStyle = sg;
   ctx.fillRect(sc.x - 170, sc.y - 110, 340, 220);
-  const sealPath = (r) => {
-    ctx.beginPath();
-    ctx.moveTo(sc.x, sc.y - r * 0.5 * ISO_S);
-    ctx.lineTo(sc.x + r * 0.866 * ISO_S, sc.y);
-    ctx.lineTo(sc.x, sc.y + r * 0.5 * ISO_S);
-    ctx.lineTo(sc.x - r * 0.866 * ISO_S, sc.y);
-    ctx.closePath();
-  };
-  ctx.strokeStyle = 'rgba(251,191,36,0.7)';
-  ctx.lineWidth = 4.5;
-  sealPath(130); ctx.stroke();
-  ctx.strokeStyle = 'rgba(34,211,238,0.7)';
-  ctx.lineWidth = 3;
-  sealPath(96); ctx.stroke();
-  ctx.strokeStyle = 'rgba(251,191,36,0.4)';
-  ctx.lineWidth = 2;
-  sealPath(64); ctx.stroke();
-  // Filled center emblem: a glowing cyan diamond at the seal's heart.
-  ctx.fillStyle = 'rgba(34,211,238,0.16)';
-  sealPath(40); ctx.fill();
-  ctx.strokeStyle = 'rgba(34,211,238,0.6)';
-  ctx.lineWidth = 2;
-  sealPath(40); ctx.stroke();
-  // Hazard chevrons around the seal rim.
+  // Concentric rings as projected ground circles (foreshortened ellipses
+  // under the perspective camera), not flat diamonds.
+  const sealRing = (r, color, lw) => groundEllipse(ctx, 640, 355, r, null, color, lw);
+  sealRing(130, 'rgba(251,191,36,0.7)', 4.5);
+  sealRing(96, 'rgba(34,211,238,0.7)', 3);
+  sealRing(64, 'rgba(251,191,36,0.4)', 2);
+  // Filled center emblem: a glowing cyan disc at the seal's heart.
+  groundEllipse(ctx, 640, 355, 40, 'rgba(34,211,238,0.16)', 'rgba(34,211,238,0.6)', 2);
+  // Hazard chevrons around the seal rim (projected logical circle points).
   ctx.fillStyle = 'rgba(251,191,36,0.4)';
   for (let i = 0; i < 8; i++) {
     const an = (i / 8) * Math.PI * 2 + Math.PI / 8;
-    const px = sc.x + Math.cos(an) * 113 * 0.866 * ISO_S;
-    const py = sc.y + Math.sin(an) * 113 * 0.5 * ISO_S;
+    const pp = iso(640 + Math.cos(an) * 113, 355 + Math.sin(an) * 113);
     ctx.save();
-    ctx.translate(px, py);
+    ctx.translate(pp.x, pp.y);
     ctx.rotate(an);
     ctx.beginPath();
     ctx.moveTo(-6, -4); ctx.lineTo(0, 0); ctx.lineTo(-6, 4);
@@ -354,11 +341,14 @@ export function drawFloor(ctx, G, time) {
 // turrets, Warden) is drawn depth-sorted in drawEntities.
 export function drawProps(ctx, G, time) {
   const S = G.stage;
-  // Jammer fields: translucent iso ellipses with rotating dashed rings.
+  // Jammer fields: translucent projected ground ellipses with rotating
+  // dashed rings (a ground circle foreshortens under the camera).
   for (const j of S.jammers) {
     const c = iso(j.x, j.y);
-    const rx = j.r * ISO_S * 0.866;
-    const ry = j.r * ISO_S * 0.5;
+    const px = iso(j.x + j.r, j.y);
+    const py = iso(j.x, j.y + j.r);
+    const rx = Math.abs(px.x - c.x);
+    const ry = Math.abs(py.y - c.y);
     ctx.save();
     ctx.fillStyle = 'rgba(168,85,247,0.10)';
     ctx.beginPath();
@@ -378,33 +368,38 @@ export function drawProps(ctx, G, time) {
     ctx.fillText('TEMPORAL JAMMER', c.x, c.y - ry - 8);
     ctx.restore();
   }
-  // Mirrors: small iso diamonds with a bright edge.
+  // Mirrors: small projected diamonds with a bright edge.
   for (const m of S.mirrors) {
+    const n = iso(m.x, m.y - 9), e = iso(m.x + 15, m.y);
+    const s = iso(m.x, m.y + 9), w = iso(m.x - 15, m.y);
     const c = iso(m.x, m.y);
     ctx.save();
     ctx.fillStyle = 'rgba(186,230,253,0.85)';
     ctx.beginPath();
-    ctx.moveTo(c.x, c.y - 9);
-    ctx.lineTo(c.x + 15, c.y);
-    ctx.lineTo(c.x, c.y + 9);
-    ctx.lineTo(c.x - 15, c.y);
+    ctx.moveTo(n.x, n.y);
+    ctx.lineTo(e.x, e.y);
+    ctx.lineTo(s.x, s.y);
+    ctx.lineTo(w.x, w.y);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.9)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(c.x - 15, c.y);
-    ctx.lineTo(c.x, c.y - 9);
-    ctx.lineTo(c.x + 15, c.y);
+    ctx.moveTo(w.x, w.y);
+    ctx.lineTo(n.x, n.y);
+    ctx.lineTo(e.x, e.y);
     ctx.stroke();
     ctx.restore();
     text(ctx, 'REFLECTOR', c.x, c.y + 22, 'bold 9px Georgia, serif', 'rgba(201,209,227,0.8)');
   }
-  // Laser grids: razor-sharp crimson beams along the iso floor, additive,
-  // with glowing emitter pillars at each end.
+  // Laser grids: razor-sharp crimson beams floating just above the floor
+  // (z = 16), additive, with glowing emitter pillars rising from the
+  // floor at each end.
   for (const l of S.lasers) {
-    const a = iso(l.x1, l.y1);
-    const b = iso(l.x2, l.y2);
+    const a = iso(l.x1, l.y1, 16);
+    const b = iso(l.x2, l.y2, 16);
+    const fa = iso(l.x1, l.y1);
+    const fb = iso(l.x2, l.y2);
     if (!l.on) {
       ctx.save();
       ctx.strokeStyle = 'rgba(148,163,184,0.25)';
@@ -430,14 +425,15 @@ export function drawProps(ctx, G, time) {
     ctx.strokeStyle = `rgba(255,255,255,${0.9 * tw})`;
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-    // Emitter pillars (pre-rendered beam sprite, alpha = live pulse).
+    // Emitter pillars (pre-rendered beam sprite, alpha = live pulse):
+    // anchored on the floor, rising past the beam.
     ctx.save();
     ctx.globalAlpha = tw;
     const pillar = vbeamSprite('239,68,68', 6, 60, 0.65);
-    for (const p of [a, b]) ctx.drawImage(pillar, p.x - 3, p.y - 60);
+    for (const p of [fa, fb]) ctx.drawImage(pillar, p.x - 3, p.y - 60);
     ctx.restore();
     ctx.restore();
-    for (const p of [a, b]) {
+    for (const p of [fa, fb]) {
       ctx.fillStyle = '#3a2b22';
       ctx.strokeStyle = '#fbbf24';
       ctx.lineWidth = 2;
@@ -561,9 +557,10 @@ function drawProp(ctx, p, time) {
 
 // --- Depth-sorted world -----------------------------------------------------
 // Everything with height goes through one painter's pass: each drawable
-// carries a depth key (x + y — larger is nearer the camera), the list is
-// sorted, then drawn. That is what makes the isometric diorama read as real
-// 3D: nearer walls and characters occlude farther ones.
+// carries a depth key (view depth from the perspective camera — larger is
+// nearer), the list is sorted, then drawn. That is what makes the 3D
+// diorama read as real depth: nearer walls and characters occlude farther
+// ones.
 // Reused across frames: the depth-sorted item list is rebuilt every frame,
 // but the array itself (and its closure objects) is the only per-frame
 // allocation left in the painter's pass — the sort is small (tens of items).
@@ -571,7 +568,7 @@ const items = [];
 export function drawEntities(ctx, G, time) {
   const S = G.stage;
   items.length = 0;
-  const add = (x, y, f) => items.push({ d: x + y, f });
+  const add = (x, y, f) => items.push({ d: depthOf(x, y), f });
 
   // Walls: extruded dark-slate slabs with height variation, a brass top
   // edge, an inset top panel, vent slits on the tall face, and a gold base
@@ -690,15 +687,8 @@ export function drawEntities(ctx, G, time) {
         ctx.globalAlpha = (0.6 + 0.25 * pulse) / 0.85;
         ctx.drawImage(vbeamSprite(pillarCol, 16, 110, 0.85), c.x - 8, c.y - 110);
         ctx.globalAlpha = 1;
-        ctx.fillStyle = `rgba(255,255,255,${0.3 + 0.2 * pulse})`;
-        ctx.beginPath();
-        ctx.ellipse(c.x, c.y, p.r + 4, (p.r + 4) * 0.5, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = `rgba(${pillarCol},${0.5 + 0.2 * pulse})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.ellipse(c.x, c.y, p.r + 10, (p.r + 10) * 0.5, 0, 0, Math.PI * 2);
-        ctx.stroke();
+        groundEllipse(ctx, p.x, p.y, p.r + 4, `rgba(255,255,255,${0.3 + 0.2 * pulse})`);
+        groundEllipse(ctx, p.x, p.y, p.r + 10, null, `rgba(${pillarCol},${0.5 + 0.2 * pulse})`, 2);
         ctx.restore();
         text(ctx, held === 'you' ? 'YOU' : 'ECHO ' + (held + 1), c.x, c.y + p.r * 0.7 + 12, 'bold 9px Georgia, serif', col);
       }
@@ -761,18 +751,18 @@ export function drawEntities(ctx, G, time) {
     add(m.x, m.y, () => {
       isoShadow(ctx, m.x, m.y, 12, 5, 0.4);
       const c = iso(m.x, m.y);
-      ctx.fillStyle = m.armed ? '#ef4444' : '#3a3f52';
+      const ex = iso(m.x + 11, m.y);
+      const ey = iso(m.x, m.y + 6);
+      const mrx = Math.abs(ex.x - c.x);
+      const mry = Math.abs(ey.y - c.y);
+      groundEllipse(ctx, m.x, m.y, 11, m.armed ? '#ef4444' : '#3a3f52', '#f87171', 2);
       ctx.strokeStyle = '#f87171';
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.ellipse(c.x, c.y, 11, 6, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2;
         ctx.beginPath();
-        ctx.moveTo(c.x + Math.cos(a) * 11, c.y + Math.sin(a) * 6);
-        ctx.lineTo(c.x + Math.cos(a) * 16, c.y + Math.sin(a) * 9);
+        ctx.moveTo(c.x + Math.cos(a) * mrx, c.y + Math.sin(a) * mry);
+        ctx.lineTo(c.x + Math.cos(a) * mrx * 1.45, c.y + Math.sin(a) * mry * 1.5);
         ctx.stroke();
       }
       if (m.armed) text(ctx, '!', c.x, c.y - 2, 'bold 11px Georgia, serif', '#fff');
@@ -803,51 +793,49 @@ export function drawEntities(ctx, G, time) {
     });
   }
   // Cores in glass containment pods: a glowing faceted diamond floating
-  // above an iso glass ellipse, with a channel progress ring.
+  // above a projected glass ellipse, with a channel progress ring.
   for (const c of S.cores) {
     if (c.taken) continue;
     add(c.x, c.y, () => {
       isoShadow(ctx, c.x, c.y, 20, 8, 0.4);
       const p = iso(c.x, c.y);
-      const bob = Math.sin(time * 2 + c.x) * 3;
-      ctx.fillStyle = 'rgba(147,197,253,0.12)';
-      ctx.strokeStyle = 'rgba(147,197,253,0.7)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, 20, 11, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      const bob = Math.sin(time * 2 + c.x) * 2;
+      groundEllipse(ctx, c.x, c.y, 20, 'rgba(147,197,253,0.12)', 'rgba(147,197,253,0.7)', 2);
       // Vertical light beam above the pod (pre-rendered sprite).
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.drawImage(vbeamSprite('34,211,238', 12, 90, 0.30), p.x - 6, p.y - 90);
       ctx.restore();
+      // The diamond floats at real height (z ≈ 13 + bob) above the pod.
+      const dp = iso(c.x, c.y, 13 + bob);
       const pulse = 1 + 0.12 * Math.sin(time * 3 + c.x);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      drawGlow(ctx, glowSprite('#22d3ee', { white: true }), p.x, p.y - 12 + bob, 22);
+      drawGlow(ctx, glowSprite('#22d3ee', { white: true }), dp.x, dp.y, 22);
       ctx.restore();
       ctx.fillStyle = '#22d3ee';
       ctx.beginPath();
-      ctx.moveTo(p.x, p.y - 12 - 11 * pulse + bob);
-      ctx.lineTo(p.x + 8 * pulse, p.y - 12 + bob);
-      ctx.lineTo(p.x, p.y - 12 + 11 * pulse + bob);
-      ctx.lineTo(p.x - 8 * pulse, p.y - 12 + bob);
+      ctx.moveTo(dp.x, dp.y - 11 * pulse);
+      ctx.lineTo(dp.x + 8 * pulse, dp.y);
+      ctx.lineTo(dp.x, dp.y + 11 * pulse);
+      ctx.lineTo(dp.x - 8 * pulse, dp.y);
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.9)';
       ctx.beginPath();
-      ctx.moveTo(p.x, p.y - 12 - 5 + bob);
-      ctx.lineTo(p.x + 3.5, p.y - 12 + bob);
-      ctx.lineTo(p.x, p.y - 12 + 5 + bob);
-      ctx.lineTo(p.x - 3.5, p.y - 12 + bob);
+      ctx.moveTo(dp.x, dp.y - 5);
+      ctx.lineTo(dp.x + 3.5, dp.y);
+      ctx.lineTo(dp.x, dp.y + 5);
+      ctx.lineTo(dp.x - 3.5, dp.y);
       ctx.closePath();
       ctx.fill();
       if (c.chan > 0) {
+        const cxp = iso(c.x + 28, c.y);
+        const cyp = iso(c.x, c.y + 15);
         ctx.strokeStyle = '#22d3ee';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.ellipse(p.x, p.y, 28, 15, 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * c.chan);
+        ctx.ellipse(p.x, p.y, Math.abs(cxp.x - p.x), Math.abs(cyp.y - p.y), 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * c.chan);
         ctx.stroke();
       }
     });
@@ -865,11 +853,7 @@ export function drawEntities(ctx, G, time) {
       ctx.globalAlpha = e.open ? pulse : 0.22;
       drawGlow(ctx, glowSprite('#fbbf24', { white: true, mid: 0.4, midA: 0.55 }), p.x, p.y, 34);
       ctx.restore();
-      ctx.strokeStyle = e.open ? `rgba(251,191,36,${0.9 * pulse})` : '#94a3b8';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y, 24, 13, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      groundEllipse(ctx, e.x, e.y, 24, null, e.open ? `rgba(251,191,36,${0.9 * pulse})` : '#94a3b8', 3);
       text(ctx, e.open ? 'EXIT' : 'LOCKED', p.x, p.y, 'bold 12px Georgia, serif', e.open ? '#34d399' : '#cbd5e1');
     });
   }
@@ -878,25 +862,29 @@ export function drawEntities(ctx, G, time) {
     const o = S.omega;
     add(o.x, o.y, () => {
       const p = iso(o.x, o.y);
-      const bob = Math.sin(time * 2) * 3;
+      const bob = Math.sin(time * 2) * 2;
+      const op = iso(o.x, o.y, 12 + bob);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      drawGlow(ctx, glowSprite('#d946ef', { white: true }), p.x, p.y - 10 + bob, 30);
+      drawGlow(ctx, glowSprite('#d946ef', { white: true }), op.x, op.y, 30);
       ctx.restore();
       ctx.fillStyle = '#fbbf24';
       ctx.beginPath();
-      ctx.moveTo(p.x, p.y - 10 - 16 + bob);
-      ctx.lineTo(p.x + 12, p.y - 10 + bob);
-      ctx.lineTo(p.x, p.y - 10 + 16 + bob);
-      ctx.lineTo(p.x - 12, p.y - 10 + bob);
+      ctx.moveTo(op.x, op.y - 16);
+      ctx.lineTo(op.x + 12, op.y);
+      ctx.lineTo(op.x, op.y + 16);
+      ctx.lineTo(op.x - 12, op.y);
       ctx.closePath();
       ctx.fill();
-      text(ctx, 'OMEGA CORE', p.x, p.y - 40, 'bold 11px Georgia, serif', GOLD);
+      const ot = iso(o.x, o.y, 42);
+      text(ctx, 'OMEGA CORE', ot.x, ot.y, 'bold 11px Georgia, serif', GOLD);
       if (o.chan > 0) {
+        const oxp = iso(o.x + 26, o.y);
+        const oyp = iso(o.x, o.y + 14);
         ctx.strokeStyle = '#fbbf24';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.ellipse(p.x, p.y, 26, 14, 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * o.chan);
+        ctx.ellipse(p.x, p.y, Math.abs(oxp.x - p.x), Math.abs(oyp.y - p.y), 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * o.chan);
         ctx.stroke();
       }
     });
@@ -974,9 +962,17 @@ export function drawEntities(ctx, G, time) {
       });
     }
   });
-  // Painter's algorithm: nearer (larger x + y) draws last.
+  // Painter's algorithm: nearer (larger view depth) draws last.
   items.sort((a, b) => a.d - b.d);
   for (const it of items) it.f();
+  // Distance fog: the far end of the vault fades into the dark, so the
+  // diorama reads as deep, not flat. Drawn after the world, before
+  // particles/callouts/HUD, so those stay crisp.
+  const fog = ctx.createLinearGradient(0, 150, 0, 340);
+  fog.addColorStop(0, 'rgba(4,16,22,0.26)');
+  fog.addColorStop(1, 'rgba(4,16,22,0)');
+  ctx.fillStyle = fog;
+  ctx.fillRect(0, 150, W, 190);
   // Particles (projected).
   for (const pt of G.particles) {
     const p = iso(pt.x, pt.y);
@@ -1351,9 +1347,9 @@ function titleCenterpieceSprite() {
   c.width = W; c.height = H;
   const x = c.getContext('2d');
   // Glass containment column at logical (640,430): extruded glass with a
-  // gold top rail and a glowing cyan core. Base screen ~(589,389), top
-  // ~y 325 — clear of the logo, the HOW TO PLAY panels (y 428+), and the
-  // stage-1 laser (ends x 569, y 448).
+  // gold top rail and a glowing cyan core. Under the perspective camera it
+  // lands mid-diorama (base ~y 405, top ~y 330) — clear of the logo, the
+  // HOW TO PLAY panels (y 428+), and the stage-1 laser (y ~460).
   isoShadow(x, 640, 430, 22, 11, 0.4);
   extrudeBox(x, 628, 418, 24, 24, 64,
     'rgba(103,232,249,0.32)', 'rgba(103,232,249,0.18)', 'rgba(103,232,249,0.10)');

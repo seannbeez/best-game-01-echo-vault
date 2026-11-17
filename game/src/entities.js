@@ -7,8 +7,8 @@ import {
   SHIELD_TIME, SHIELD_COOLDOWN, EMP_COOLDOWN, EMP_RADIUS, ANCHOR_COOLDOWN,
   CORE_CHANNEL_TIME, WARDEN_VULN_TIME, clamp, dist,
 } from './config.js';
-import { iso, isoShadow, screenToWorld } from './iso.js';
-import { glowSprite, drawGlow, coneSprite } from './glow.js';
+import { iso, isoShadow, screenToWorld, extrudeBox, groundEllipse } from './iso.js';
+import { glowSprite, drawGlow } from './glow.js';
 
 export function createPlayer(spawn) {
   return {
@@ -351,40 +351,38 @@ export function drawThief(ctx, x, y, color, opts = {}) {
     ctx.globalAlpha = alpha;
   }
   // Additive halo behind the hood: the figure glows against the dark floor
-  // (pre-rendered glow sprite, same color-only fade as the old gradient).
+  // (pre-rendered glow sprite).
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   drawGlow(ctx, glowSprite(color), top.x, top.y - 4, 20);
   ctx.restore();
-  // Cloak body: tapered torso from the floor diamond up to the hood.
-  ctx.fillStyle = '#1b2340';
+  // Cloak body, assembled from 3D boxes: a wide hem box, a narrower torso
+  // box, and a shoulder box — the figure reads as a solid volume, not a
+  // flat billboard, and it occludes correctly against walls and props.
+  extrudeBox(ctx, x - 13, y - 13, 26, 26, 18, '#232c48', '#1b2340', '#121a2c');
+  extrudeBox(ctx, x - 10, y - 10, 20, 20, 30, '#2a3556', '#1e2846', '#141c30');
+  extrudeBox(ctx, x - 8, y - 8, 16, 16, 36, '#33406a', '#232c48', '#161e33');
+  // Gold trim at the hem (the south face's top edge).
+  const h1 = iso(x - 13, y + 13, 18);
+  const h2 = iso(x + 13, y + 13, 18);
+  ctx.strokeStyle = 'rgba(251,191,36,0.7)';
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(c.x - 14.5, c.y);
-  ctx.lineTo(top.x - 8.5, top.y);
-  ctx.lineTo(top.x + 8.5, top.y);
-  ctx.lineTo(c.x + 14.5, c.y);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
+  ctx.moveTo(h1.x, h1.y);
+  ctx.lineTo(h2.x, h2.y);
   ctx.stroke();
   // Rim light on the upper-left edge (the light rakes in from the left).
+  const r1 = iso(x - 10, y + 10, 30);
+  const r2 = iso(x - 8, y + 8, 36);
   ctx.strokeStyle = color;
   ctx.globalAlpha = alpha * 0.95;
   ctx.lineWidth = 2.5;
   ctx.beginPath();
-  ctx.moveTo(top.x - 8.5, top.y + 2);
-  ctx.lineTo(c.x - 14.5, c.y - 4);
+  ctx.moveTo(r1.x, r1.y);
+  ctx.lineTo(r2.x, r2.y);
   ctx.stroke();
   ctx.globalAlpha = alpha;
-  // Gold trim at the hem.
-  ctx.strokeStyle = 'rgba(251,191,36,0.7)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(c.x - 13.5, c.y - 3);
-  ctx.lineTo(c.x + 13.5, c.y - 3);
-  ctx.stroke();
-  // Hood + glowing visor slit.
+  // Hood + glowing visor slit, sitting on the shoulder box.
   ctx.fillStyle = '#2a3358';
   ctx.beginPath();
   ctx.arc(top.x + Math.cos(face) * 2, top.y - 2, 8.5, 0, Math.PI * 2);
@@ -410,13 +408,9 @@ export function drawThief(ctx, x, y, color, opts = {}) {
   ctx.moveTo(d1.x, d1.y);
   ctx.lineTo(d2.x, d2.y);
   ctx.stroke();
-  // Reflect shield ring (iso ellipse).
+  // Reflect shield ring (projected ground ellipse).
   if (shield) {
-    ctx.strokeStyle = 'rgba(34,211,238,0.9)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.ellipse(c.x, c.y - 8, 23 + Math.sin(time * 8) * 1.5, 12.5, 0, 0, Math.PI * 2);
-    ctx.stroke();
+    groundEllipse(ctx, x, y, 23 + Math.sin(time * 8) * 1.5, null, 'rgba(34,211,238,0.9)', 3);
   }
   // Overhead tag.
   if (tag) {
@@ -434,36 +428,39 @@ export function drawThief(ctx, x, y, color, opts = {}) {
   ctx.restore();
 }
 
-// Sentry turret in 2.5D: an iso hex base, an extruded barrel along the aim
-// vector, and an additive red/amber vision cone sweeping the floor.
+// Sentry turret in 3D: a hex-prism base, a barrel along the aim vector,
+// and an additive red/amber vision cone projected onto the floor plane.
 export function drawTurret(ctx, t, time) {
   const c = iso(t.x, t.y);
   const aim = iso(t.x + Math.cos(t.angle) * t.range, t.y + Math.sin(t.angle) * t.range);
   // Sentry vision cone (additive) along the aim direction: a wide faint
-  // sweep plus a narrower hot core, so the cone reads at a glance.
+  // ground wedge plus a narrower hot core — projected onto the floor, so
+  // it foreshortens with the perspective camera instead of floating.
   if (t.disabledT <= 0) {
-    // Pre-rendered cone wedges, rotated toward the aim: same shape and fade
-    // as the old gradient triangles, stamped with drawImage.
-    const dx = aim.x - c.x, dy = aim.y - c.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const s = len / 252;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.translate(c.x, c.y - 14);
-    ctx.rotate(Math.atan2(dy, dx));
-    ctx.scale(s, s);
-    ctx.drawImage(coneSprite('239,68,68', 0.32, 0.28), -2, -80);
-    ctx.drawImage(coneSprite('251,146,60', 0.30, 0.13), -2, -80);
-    ctx.restore();
+    for (const [spread, col] of [[0.34, 'rgba(239,68,68,0.20)'], [0.16, 'rgba(251,146,60,0.22)']]) {
+      const l = iso(t.x + Math.cos(t.angle - spread) * t.range, t.y + Math.sin(t.angle - spread) * t.range);
+      const r = iso(t.x + Math.cos(t.angle + spread) * t.range, t.y + Math.sin(t.angle + spread) * t.range);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(l.x, l.y);
+      ctx.lineTo(r.x, r.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
   }
-  // Telegraph dashed line while aiming.
+  // Telegraph dashed line while aiming (muzzle to aim point).
+  const muzzle = iso(t.x, t.y, 14);
   if (t.state === 'aim' && t.disabledT <= 0) {
     ctx.save();
     ctx.strokeStyle = 'rgba(239,68,68,0.4)';
     ctx.setLineDash([6, 8]);
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(c.x, c.y - 14);
+    ctx.moveTo(muzzle.x, muzzle.y);
     ctx.lineTo(aim.x, aim.y);
     ctx.stroke();
     ctx.restore();
@@ -495,26 +492,40 @@ export function drawTurret(ctx, t, time) {
   }
   // Long drop-shadow.
   isoShadow(ctx, t.x, t.y, 15, 6, 0.45);
-  // Hex base as an iso diamond with a hazard ring.
+  // Hex base as a 3D hex prism: the two south-facing side quads, then the
+  // top face with a gold hazard ring.
+  const hexTop = [], hexBot = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+    hexTop.push(iso(t.x + Math.cos(a) * 15, t.y + Math.sin(a) * 15, 8));
+    hexBot.push(iso(t.x + Math.cos(a) * 15, t.y + Math.sin(a) * 15, 0));
+  }
+  ctx.fillStyle = t.disabledT > 0 ? '#232830' : '#2e2118';
+  for (const [i, j] of [[0, 1], [1, 2]]) {
+    ctx.beginPath();
+    ctx.moveTo(hexTop[i].x, hexTop[i].y);
+    ctx.lineTo(hexTop[j].x, hexTop[j].y);
+    ctx.lineTo(hexBot[j].x, hexBot[j].y);
+    ctx.lineTo(hexBot[i].x, hexBot[i].y);
+    ctx.closePath();
+    ctx.fill();
+  }
   const base = iso(t.x, t.y, 8);
   ctx.fillStyle = t.disabledT > 0 ? '#2a2f3a' : '#3a2b22';
   ctx.strokeStyle = '#fbbf24';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(base.x, base.y - 9);
-  ctx.lineTo(base.x + 14, base.y);
-  ctx.lineTo(base.x, base.y + 9);
-  ctx.lineTo(base.x - 14, base.y);
+  hexTop.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  // Rotating barrel: a short extruded bar toward the aim point.
+  // Rotating barrel: a short bar from the base top toward the aim point.
   const bEnd = iso(t.x + Math.cos(t.angle) * 24, t.y + Math.sin(t.angle) * 24, 14);
   ctx.strokeStyle = '#c9d1e3';
   ctx.lineWidth = 6;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(base.x, base.y - 6);
+  ctx.moveTo(base.x, base.y);
   ctx.lineTo(bEnd.x, bEnd.y);
   ctx.stroke();
   ctx.fillStyle = '#ef4444';
@@ -524,7 +535,7 @@ export function drawTurret(ctx, t, time) {
   // Eye dome.
   ctx.fillStyle = t.disabledT > 0 ? '#4b5563' : '#ef4444';
   ctx.beginPath();
-  ctx.arc(base.x, base.y - 6, 5, 0, Math.PI * 2);
+  ctx.arc(base.x, base.y, 5, 0, Math.PI * 2);
   ctx.fill();
   if (t.disabledT > 0) {
     ctx.fillStyle = '#60a5fa';
@@ -609,15 +620,12 @@ export function drawWarden(ctx, w, time) {
     ctx.arc(tip.x, tip.y, 8, 0, Math.PI * 2);
     ctx.stroke();
   }
-  // Telegraph hazard grid before a sweep: a dashed iso ellipse on the floor.
+  // Telegraph hazard grid before a sweep: a dashed projected ellipse on
+  // the floor.
   if (w.state === 'telegraph') {
     ctx.save();
-    ctx.strokeStyle = 'rgba(239,68,68,0.45)';
     ctx.setLineDash([10, 8]);
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.ellipse(c.x, c.y, 135, 78, 0, 0, Math.PI * 2);
-    ctx.stroke();
+    groundEllipse(ctx, x, y, 135, null, 'rgba(239,68,68,0.45)', 3);
     ctx.setLineDash([]);
     ctx.restore();
   }
@@ -691,26 +699,15 @@ export function drawWarden(ctx, w, time) {
     ctx.arc(gx.x, gx.y, 3, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Shield dome: a dashed gold iso ellipse while guarded, a solid cracked
-  // red ring once the shield is down for good.
+  // Shield dome: a dashed gold projected ellipse while guarded, a solid
+  // cracked red ring once the shield is down for good.
   ctx.save();
   if (w.shield) {
-    ctx.fillStyle = 'rgba(251,191,36,0.05)';
-    ctx.beginPath();
-    ctx.ellipse(c.x, c.y, 52, 30, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(251,191,36,0.75)';
-    ctx.lineWidth = 3;
+    groundEllipse(ctx, x, y, 52, 'rgba(251,191,36,0.05)', null);
     ctx.setLineDash([18, 10]);
-    ctx.beginPath();
-    ctx.ellipse(c.x, c.y, 52, 30, 0, 0, Math.PI * 2);
-    ctx.stroke();
+    groundEllipse(ctx, x, y, 52, null, 'rgba(251,191,36,0.75)', 3);
   } else {
-    ctx.strokeStyle = 'rgba(239,68,68,0.9)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.ellipse(c.x, c.y, 52, 30, 0, 0, Math.PI * 2);
-    ctx.stroke();
+    groundEllipse(ctx, x, y, 52, null, 'rgba(239,68,68,0.9)', 3);
   }
   ctx.restore();
   // HP bar above.
