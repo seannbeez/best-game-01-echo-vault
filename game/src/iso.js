@@ -71,13 +71,19 @@ export function extrudeBox(ctx, x, y, w, h, z, top, left, right) {
   ctx.closePath(); ctx.fill();
 }
 
-// A long, soft directional drop-shadow for an object standing at (x, y).
+// A long, soft directional drop-shadow for an object standing at (x, y):
+// a dense core ellipse plus a fainter, farther tail — the light rakes in
+// from the upper-left, so every shadow stretches down-right.
 export function isoShadow(ctx, x, y, rx, ry, alpha = 0.45) {
   const c = iso(x, y);
   ctx.save();
   ctx.fillStyle = `rgba(0,0,0,${alpha})`;
   ctx.beginPath();
-  ctx.ellipse(c.x + 12, c.y + 7, rx, ry, 0, 0, Math.PI * 2);
+  ctx.ellipse(c.x + 20, c.y + 12, rx * 1.35, ry * 1.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = `rgba(0,0,0,${alpha * 0.45})`;
+  ctx.beginPath();
+  ctx.ellipse(c.x + 38, c.y + 21, rx * 1.5, ry * 1.2, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }

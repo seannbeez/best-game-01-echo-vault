@@ -1,10 +1,10 @@
 // ECHO VAULT — all drawing: the full-bleed vault floor, props, entities,
 // floating HUD, and the title / draft / victory / defeat screens.
 // One clear job: turn game state into pixels. No logic lives here.
-import { W, H, ARENA, ECHO_COLORS, clamp, lerp } from './config.js';
+import { W, H, ARENA, ECHO_COLORS, clamp, lerp, hash01 } from './config.js';
 import { STAGE_NAMES } from './levels.js';
 import { iso, screenToWorld, isoDiamond, extrudeBox, isoShadow, ISO_S } from './iso.js';
-import { drawThief, drawTurret, drawWarden } from './entities.js';
+import { drawThief, drawTurret, drawWarden, segDist } from './entities.js';
 
 const GOLD = '#fbbf24';
 const CYAN = '#22d3ee';
@@ -41,9 +41,12 @@ export function drawFloor(ctx, G, time) {
   g.addColorStop(1, '#030507');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
-  // Holographic circuit grid lines (faint, slow-drifting).
+  // Holographic circuit grid (dense, Timelie-style): cyan '+' crosses and
+  // right-angle corner traces scattered over the abyss, a few pulsing nodes,
+  // and slow-drifting dust motes. All positions are deterministic (hash01),
+  // so the abyss is stable frame to frame.
   ctx.save();
-  ctx.strokeStyle = 'rgba(34,211,238,0.07)';
+  ctx.strokeStyle = 'rgba(34,211,238,0.08)';
   ctx.lineWidth = 1;
   for (let x = -40; x < W + 40; x += 64) {
     ctx.beginPath();
@@ -57,13 +60,45 @@ export function drawFloor(ctx, G, time) {
     ctx.lineTo(W, y + 60);
     ctx.stroke();
   }
-  ctx.fillStyle = 'rgba(34,211,238,0.12)';
-  for (let i = 0; i < 24; i++) {
-    const nx = ((i * 173.1) % 12) * 110 + 20;
-    const ny = ((i * 269.3) % 7) * 100 + 20;
+  for (let i = 0; i < 110; i++) {
+    const nx = hash01(i * 1.37 + 0.11) * W;
+    const ny = hash01(i * 2.91 + 0.53) * H;
+    const a = 0.10 + 0.12 * hash01(i * 4.7 + 0.9);
+    const arm = 5 + 9 * hash01(i * 3.3 + 0.2);
+    ctx.strokeStyle = `rgba(34,211,238,${a})`;
+    ctx.lineWidth = 1.2;
+    if (i % 3 === 0) {
+      // Corner trace: two right-angle arms, like a circuit elbow.
+      const dx = (hash01(i * 7.1) > 0.5 ? 1 : -1) * arm * 1.6;
+      const dy = (hash01(i * 5.3) > 0.5 ? 1 : -1) * arm * 1.2;
+      ctx.beginPath();
+      ctx.moveTo(nx, ny + dy);
+      ctx.lineTo(nx, ny);
+      ctx.lineTo(nx + dx, ny);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(nx - arm, ny); ctx.lineTo(nx + arm, ny);
+      ctx.moveTo(nx, ny - arm * 0.7); ctx.lineTo(nx, ny + arm * 0.7);
+      ctx.stroke();
+    }
+  }
+  // Pulsing circuit nodes + drifting dust motes.
+  for (let i = 0; i < 18; i++) {
+    const nx = hash01(i * 9.4 + 0.31) * W;
+    const ny = hash01(i * 6.2 + 0.77) * H;
+    const pulse = 0.18 + 0.16 * Math.sin(time * 1.4 + i * 1.7);
+    ctx.fillStyle = `rgba(34,211,238,${pulse})`;
     ctx.beginPath();
-    ctx.arc(nx, ny, 1.5, 0, Math.PI * 2);
+    ctx.arc(nx, ny, 2.2, 0, Math.PI * 2);
     ctx.fill();
+  }
+  for (let i = 0; i < 42; i++) {
+    const bx = hash01(i * 3.9 + 0.41) * W;
+    const by = hash01(i * 8.8 + 0.19) * H;
+    const drift = Math.sin(time * 0.22 + i * 2.4) * 14;
+    ctx.fillStyle = `rgba(165,243,252,${0.10 + 0.10 * hash01(i * 1.9)})`;
+    ctx.fillRect(bx + drift, by + Math.cos(time * 0.16 + i) * 8, 2, 2);
   }
   ctx.restore();
   // The floating floor slab: a thick extruded diamond under the whole arena.
@@ -89,7 +124,8 @@ export function drawFloor(ctx, G, time) {
   ctx.lineTo(corners[2].x, corners[2].y + 26);
   ctx.closePath();
   ctx.fill();
-  // Steel tile diamonds with brushed variation.
+  // Steel tile diamonds with brushed variation, corner rivets, and a few
+  // edge-lit glowing floor panels (deterministic per tile).
   const ts = 92;
   for (let ty = 0; ty < ARENA.h / ts; ty++) {
     for (let tx = 0; tx < ARENA.w / ts; tx++) {
@@ -98,12 +134,41 @@ export function drawFloor(ctx, G, time) {
       const shade = ((tx * 7 + ty * 13) % 3);
       const fill = shade === 0 ? '#141b2e' : shade === 1 ? '#101624' : '#171f36';
       isoDiamond(ctx, cx, cy, ts / 2, ts / 2, fill, 'rgba(120,140,180,0.14)');
+      const p = iso(cx, cy);
+      const hw = (ts / 2) * 0.866 * ISO_S;
+      const hh = (ts / 2) * 0.5 * ISO_S;
+      // Rivets at the four diamond corners.
+      ctx.fillStyle = 'rgba(190,210,240,0.22)';
+      for (const [rx, ry] of [[0, -hh], [hw, 0], [0, hh], [-hw, 0]]) {
+        ctx.fillRect(p.x + rx - 1, p.y + ry - 1, 2, 2);
+      }
+      // Edge-lit panel: one glowing edge per chosen tile.
+      const lit = hash01(tx * 13.7 + ty * 7.3 + 0.5);
+      if (lit < 0.14) {
+        ctx.strokeStyle = lit < 0.07 ? 'rgba(34,211,238,0.5)' : 'rgba(251,191,36,0.45)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(p.x - hw, p.y);
+        ctx.lineTo(p.x, p.y - hh);
+        ctx.stroke();
+      }
+      // Hazard chevron on a few tiles near the chamber edge.
+      if (ty === 0 && tx % 3 === 1) {
+        ctx.fillStyle = 'rgba(251,191,36,0.28)';
+        ctx.beginPath();
+        ctx.moveTo(p.x - 8, p.y + hh * 0.4);
+        ctx.lineTo(p.x, p.y - hh * 0.2);
+        ctx.lineTo(p.x + 8, p.y + hh * 0.4);
+        ctx.lineTo(p.x, p.y + hh * 0.1);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
   }
   // Glowing gold/cyan floor conduits along the tile seams.
   ctx.save();
-  ctx.strokeStyle = 'rgba(251,191,36,0.30)';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(251,191,36,0.45)';
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
   let a = iso(ARENA.x, ARENA.y + 46);
   let b = iso(ARENA.x + ARENA.w, ARENA.y + 46);
@@ -112,7 +177,7 @@ export function drawFloor(ctx, G, time) {
   b = iso(ARENA.x + ARENA.w, ARENA.y + ARENA.h - 46);
   ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
   ctx.stroke();
-  ctx.strokeStyle = 'rgba(34,211,238,0.24)';
+  ctx.strokeStyle = 'rgba(34,211,238,0.38)';
   ctx.beginPath();
   a = iso(ARENA.x + 46, ARENA.y);
   b = iso(ARENA.x + 46, ARENA.y + ARENA.h);
@@ -147,33 +212,48 @@ export function drawFloor(ctx, G, time) {
   ctx.lineTo(corners[3].x, corners[3].y - 6);
   ctx.closePath();
   ctx.stroke();
-  // Glossy sheen sweeping the floor.
+  // Glossy sheen sweeping the floor, plus a soft central glow.
   ctx.save();
   const sheen = ctx.createLinearGradient(200, 80, 1080, 640);
-  sheen.addColorStop(0, 'rgba(255,255,255,0.05)');
-  sheen.addColorStop(0.4, 'rgba(255,255,255,0)');
-  sheen.addColorStop(0.6, 'rgba(255,255,255,0.02)');
-  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  sheen.addColorStop(0, 'rgba(255,255,255,0.08)');
+  sheen.addColorStop(0.35, 'rgba(255,255,255,0)');
+  sheen.addColorStop(0.55, 'rgba(255,255,255,0.045)');
+  sheen.addColorStop(0.75, 'rgba(255,255,255,0)');
+  sheen.addColorStop(1, 'rgba(255,255,255,0.03)');
   ctx.fillStyle = sheen;
   ctx.beginPath();
   corners.forEach((c, i) => (i === 0 ? ctx.moveTo(c.x, c.y) : ctx.lineTo(c.x, c.y)));
   ctx.closePath();
   ctx.fill();
+  const cc = iso(ARENA.x + ARENA.w / 2, ARENA.y + ARENA.h / 2);
+  const cg = ctx.createRadialGradient(cc.x, cc.y, 20, cc.x, cc.y, 420);
+  cg.addColorStop(0, 'rgba(180,220,255,0.06)');
+  cg.addColorStop(1, 'rgba(180,220,255,0)');
+  ctx.fillStyle = cg;
+  ctx.fillRect(cc.x - 420, cc.y - 260, 840, 520);
   ctx.restore();
-  // Volumetric spotlight cones from the ceiling (additive).
+  // Volumetric spotlight cones from the ceiling (additive), with warm
+  // light pools where they land on the floor.
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  for (const sx of [360, 640, 920]) {
-    const grad = ctx.createLinearGradient(sx, 0, sx, 420);
-    grad.addColorStop(0, 'rgba(255,240,200,0.09)');
-    grad.addColorStop(1, 'rgba(255,240,200,0)');
+  for (const [sx, col, a0] of [[360, '255,240,200', 0.16], [640, '255,240,200', 0.16], [920, '255,240,200', 0.16], [780, '251,191,36', 0.10]]) {
+    const grad = ctx.createLinearGradient(sx, 0, sx, 430);
+    grad.addColorStop(0, `rgba(${col},${a0})`);
+    grad.addColorStop(1, `rgba(${col},0)`);
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.moveTo(sx - 26, 0);
     ctx.lineTo(sx + 26, 0);
-    ctx.lineTo(sx + 130, 420);
-    ctx.lineTo(sx - 130, 420);
+    ctx.lineTo(sx + 170, 430);
+    ctx.lineTo(sx - 170, 430);
     ctx.closePath();
+    ctx.fill();
+    const pool = ctx.createRadialGradient(sx, 430, 4, sx, 430, 150);
+    pool.addColorStop(0, `rgba(${col},${a0 * 0.9})`);
+    pool.addColorStop(1, `rgba(${col},0)`);
+    ctx.fillStyle = pool;
+    ctx.beginPath();
+    ctx.ellipse(sx, 430, 150, 34, 0, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
@@ -258,19 +338,23 @@ export function drawProps(ctx, G, time) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     const tw = 0.75 + 0.25 * Math.sin(time * 6 + l.x1);
-    ctx.strokeStyle = `rgba(239,68,68,${0.55 * tw})`;
+    // Wide outer halo, then the hot core, then a white spine.
+    ctx.strokeStyle = `rgba(239,68,68,${0.22 * tw})`;
+    ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    ctx.strokeStyle = `rgba(239,68,68,${0.8 * tw})`;
     ctx.lineWidth = 5;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-    ctx.strokeStyle = `rgba(255,255,255,${0.7 * tw})`;
+    ctx.strokeStyle = `rgba(255,255,255,${0.9 * tw})`;
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     // Emitter pillars.
     for (const p of [a, b]) {
-      const grad = ctx.createLinearGradient(p.x, p.y - 44, p.x, p.y);
+      const grad = ctx.createLinearGradient(p.x, p.y - 60, p.x, p.y);
       grad.addColorStop(0, 'rgba(239,68,68,0)');
-      grad.addColorStop(1, `rgba(239,68,68,${0.5 * tw})`);
+      grad.addColorStop(1, `rgba(239,68,68,${0.65 * tw})`);
       ctx.fillStyle = grad;
-      ctx.fillRect(p.x - 2, p.y - 44, 4, 44);
+      ctx.fillRect(p.x - 3, p.y - 60, 6, 60);
     }
     ctx.restore();
     for (const p of [a, b]) {
@@ -306,6 +390,95 @@ export function drawProps(ctx, G, time) {
   }
 }
 
+// --- Vault furniture (procedural props) -------------------------------------
+// Crates, consoles, barrels and vents placed on FREE floor cells only: every
+// candidate tile center is rejected if it is near a plate, core, terminal,
+// exit, spawn, mine, turret, the Warden, a laser line, a wall/door, a jammer
+// or a sweeper path — so no prop ever covers an objective or blocks a route.
+// Candidates hug the chamber walls (like real vault furniture). The list is
+// cached per stage object and purely visual: props have no collision.
+const propCache = new WeakMap();
+function getProps(S) {
+  const cached = propCache.get(S);
+  if (cached) return cached;
+  const out = [];
+  const near = (x, y, r, list) => list.some((o) => Math.hypot(o.x - x, o.y - y) < r);
+  const inRect = (x, y, r, list) => list.some((o) => x > o.x - r && x < o.x + o.w + r && y > o.y - r && y < o.y + o.h + r);
+  for (let ty = 0; ty < ARENA.h / 92; ty++) {
+    for (let tx = 0; tx < ARENA.w / 92; tx++) {
+      const cx = ARENA.x + tx * 92 + 46;
+      const cy = ARENA.y + ty * 92 + 46;
+      const border = Math.min(cx - ARENA.x, ARENA.x + ARENA.w - cx, cy - ARENA.y, ARENA.y + ARENA.h - cy);
+      if (border > 150) continue; // hug the walls
+      if (near(cx, cy, 70, S.plates) || near(cx, cy, 70, S.cores) || near(cx, cy, 70, S.terminals)) continue;
+      if (near(cx, cy, 80, [S.spawn]) || (S.exit && near(cx, cy, 80, [S.exit]))) continue;
+      if (near(cx, cy, 55, S.mines) || near(cx, cy, 60, S.turrets)) continue;
+      if (S.warden && Math.hypot(cx - S.warden.x, cy - S.warden.y) < 140) continue;
+      if (S.lasers.some((l) => segDist(cx, cy, l.x1, l.y1, l.x2, l.y2) < 36)) continue;
+      if (inRect(cx, cy, 26, S.walls) || inRect(cx, cy, 26, S.doors)) continue;
+      if (S.jammers.some((j) => Math.hypot(cx - j.x, cy - j.y) < j.r + 10)) continue;
+      if (S.sweepers.some((s) => segDist(cx, cy, s.x1, s.y1, s.x2, s.y2) < 34)) continue;
+      const h = hash01(tx * 5.1 + ty * 11.7 + S.num * 3.3);
+      if (h > 0.55 || out.length >= 10) continue;
+      out.push({ x: cx, y: cy, kind: h < 0.18 ? 'crate' : h < 0.34 ? 'console' : h < 0.46 ? 'barrel' : 'vent', seed: h });
+    }
+  }
+  propCache.set(S, out);
+  return out;
+}
+
+function drawProp(ctx, p, time) {
+  if (p.kind === 'vent') {
+    isoDiamond(ctx, p.x, p.y, 16, 16, '#0d1220', 'rgba(148,163,184,0.4)');
+    const c = iso(p.x, p.y);
+    ctx.strokeStyle = 'rgba(100,116,139,0.8)';
+    ctx.lineWidth = 2;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(c.x - 8 + i * 8, c.y - 4 - i * 2);
+      ctx.lineTo(c.x - 2 + i * 8, c.y + 1 - i * 2);
+      ctx.stroke();
+    }
+    return;
+  }
+  if (p.kind === 'crate') {
+    extrudeBox(ctx, p.x - 17, p.y - 17, 34, 34, 22, '#33415e', '#232c44', '#182035');
+    const t1 = iso(p.x - 17, p.y - 17, 22);
+    const t2 = iso(p.x + 17, p.y - 17, 22);
+    const t3 = iso(p.x + 17, p.y + 17, 22);
+    const t4 = iso(p.x - 17, p.y + 17, 22);
+    ctx.strokeStyle = 'rgba(251,191,36,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(t1.x, t1.y); ctx.lineTo(t3.x, t3.y);
+    ctx.moveTo(t2.x, t2.y); ctx.lineTo(t4.x, t4.y);
+    ctx.stroke();
+    return;
+  }
+  if (p.kind === 'console') {
+    extrudeBox(ctx, p.x - 15, p.y - 11, 30, 22, 26, '#1e3a5f', '#16294a', '#0f1e38');
+    const top = iso(p.x, p.y, 26);
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillRect(top.x - 8, top.y - 4, 16, 7);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(top.x - 5, top.y - 2, 10, 2);
+    const blink = 0.4 + 0.6 * Math.abs(Math.sin(time * 2 + p.seed * 20));
+    ctx.fillStyle = `rgba(239,68,68,${blink})`;
+    ctx.beginPath();
+    ctx.arc(top.x + 12, top.y - 6, 2, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  // barrel
+  extrudeBox(ctx, p.x - 9, p.y - 9, 18, 18, 26, '#5b4a2a', '#3d2f14', '#2c2110');
+  const bt = iso(p.x, p.y, 26);
+  ctx.strokeStyle = 'rgba(251,191,36,0.7)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(bt.x, bt.y, 10, 5.5, 0, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
 // --- Depth-sorted world -----------------------------------------------------
 // Everything with height goes through one painter's pass: each drawable
 // carries a depth key (x + y — larger is nearer the camera), the list is
@@ -316,14 +489,17 @@ export function drawEntities(ctx, G, time) {
   const items = [];
   const add = (x, y, f) => items.push({ d: x + y, f });
 
-  // Walls: extruded dark-slate slabs with a brass top edge.
+  // Walls: extruded dark-slate slabs with height variation, a brass top
+  // edge, an inset top panel, vent slits on the tall face, and a gold base
+  // trim — the chamber reads as built architecture, not flat bars.
   for (const w of S.walls) {
     add(w.x + w.w / 2, w.y + w.h / 2, () => {
-      extrudeBox(ctx, w.x, w.y, w.w, w.h, 42, '#2b3a55', '#1c2740', '#121a2c');
-      const t1 = iso(w.x, w.y, 42);
-      const t2 = iso(w.x + w.w, w.y, 42);
-      const t3 = iso(w.x + w.w, w.y + w.h, 42);
-      const t4 = iso(w.x, w.y + w.h, 42);
+      const wh = 42 + Math.floor(hash01(w.x * 0.13 + w.y * 0.29) * 3) * 14;
+      extrudeBox(ctx, w.x, w.y, w.w, w.h, wh, '#2b3a55', '#1c2740', '#121a2c');
+      const t1 = iso(w.x, w.y, wh);
+      const t2 = iso(w.x + w.w, w.y, wh);
+      const t3 = iso(w.x + w.w, w.y + w.h, wh);
+      const t4 = iso(w.x, w.y + w.h, wh);
       ctx.strokeStyle = 'rgba(251,191,36,0.55)';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -331,9 +507,46 @@ export function drawEntities(ctx, G, time) {
       ctx.lineTo(t3.x, t3.y); ctx.lineTo(t4.x, t4.y);
       ctx.closePath();
       ctx.stroke();
+      // Inset top panel.
+      const ins = Math.min(5, w.w / 4, w.h / 4);
+      const i1 = iso(w.x + ins, w.y + ins, wh);
+      const i2 = iso(w.x + w.w - ins, w.y + ins, wh);
+      const i3 = iso(w.x + w.w - ins, w.y + w.h - ins, wh);
+      const i4 = iso(w.x + ins, w.y + w.h - ins, wh);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.beginPath();
+      ctx.moveTo(i1.x, i1.y); ctx.lineTo(i2.x, i2.y);
+      ctx.lineTo(i3.x, i3.y); ctx.lineTo(i4.x, i4.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(148,163,184,0.28)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Vent slits on the tall face (only on long walls).
+      if (Math.max(w.w, w.h) > 60) {
+        ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+        ctx.lineWidth = 2;
+        for (const f of [0.3, 0.5, 0.7]) {
+          const sx = t4.x + (t3.x - t4.x) * f;
+          const sy = t4.y + (t3.y - t4.y) * f;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy + 6);
+          ctx.lineTo(sx, sy + 16);
+          ctx.stroke();
+        }
+      }
+      // Gold base trim along the front-bottom edge.
+      const b4 = iso(w.x, w.y + w.h, 0);
+      const b3 = iso(w.x + w.w, w.y + w.h, 0);
+      ctx.strokeStyle = 'rgba(251,191,36,0.35)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(b4.x, b4.y); ctx.lineTo(b3.x, b3.y);
+      ctx.stroke();
     });
   }
-  // Glass partitions: translucent cyan extruded panels.
+  // Glass partitions: translucent cyan extruded panels with dark frame
+  // posts, a gold top rail, and a diagonal glint.
   for (const gp of S.glass) {
     add(gp.x + gp.w / 2, gp.y + gp.h / 2, () => {
       extrudeBox(ctx, gp.x, gp.y, gp.w, gp.h, 34,
@@ -349,7 +562,26 @@ export function drawEntities(ctx, G, time) {
       ctx.lineTo(t3.x, t3.y); ctx.lineTo(t4.x, t4.y);
       ctx.closePath();
       ctx.stroke();
+      // Frame posts at both ends + gold top rail + glint.
+      for (const [fx, fy] of [[gp.x, gp.y], [gp.x + gp.w - 6, gp.y + gp.h - 6]]) {
+        extrudeBox(ctx, fx, fy, 6, 6, 34, '#1c2740', '#141b2e', '#0d1322');
+      }
+      ctx.strokeStyle = 'rgba(251,191,36,0.55)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(t1.x, t1.y); ctx.lineTo(t2.x, t2.y);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(t1.x + 8, t1.y + 10);
+      ctx.lineTo(t3.x - 8, t3.y - 4);
+      ctx.stroke();
     });
+  }
+  // Vault furniture on free floor cells (never on objectives or paths).
+  for (const p of getProps(S)) {
+    add(p.x, p.y, () => drawProp(ctx, p, time));
   }
   // Pressure plates: glowing iso diamonds. A held plate rises as a vertical
   // light pillar; on stage 7 the node plates are shield pylons linked to
@@ -370,15 +602,20 @@ export function drawEntities(ctx, G, time) {
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         const pulse = 0.5 + 0.5 * Math.sin(time * 4);
-        const grad = ctx.createLinearGradient(c.x, c.y - 96, c.x, c.y);
+        const grad = ctx.createLinearGradient(c.x, c.y - 110, c.x, c.y);
         grad.addColorStop(0, `rgba(${pillarCol},0)`);
-        grad.addColorStop(1, `rgba(${pillarCol},${0.45 + 0.2 * pulse})`);
+        grad.addColorStop(1, `rgba(${pillarCol},${0.6 + 0.25 * pulse})`);
         ctx.fillStyle = grad;
-        ctx.fillRect(c.x - 5, c.y - 96, 10, 96);
-        ctx.fillStyle = `rgba(255,255,255,${0.2 + 0.2 * pulse})`;
+        ctx.fillRect(c.x - 8, c.y - 110, 16, 110);
+        ctx.fillStyle = `rgba(255,255,255,${0.3 + 0.2 * pulse})`;
         ctx.beginPath();
         ctx.ellipse(c.x, c.y, p.r + 4, (p.r + 4) * 0.5, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = `rgba(${pillarCol},${0.5 + 0.2 * pulse})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y, p.r + 10, (p.r + 10) * 0.5, 0, 0, Math.PI * 2);
+        ctx.stroke();
         ctx.restore();
         text(ctx, held === 'you' ? 'YOU' : 'ECHO ' + (held + 1), c.x, c.y + p.r * 0.7 + 12, 'bold 9px Georgia, serif', col);
       }
@@ -416,6 +653,22 @@ export function drawEntities(ctx, G, time) {
         extrudeBox(ctx, d.x, d.y, d.w, d.h, 52, '#8a6d2b', '#4b3b1a', '#3d2f14');
         const t = iso(d.x + d.w / 2, d.y + d.h / 2, 52);
         text(ctx, d.needTwo ? 'A+B' : d.link, t.x, t.y, 'bold 11px Georgia, serif', '#fbbf24');
+        // Hazard-striped threshold along the door's front-bottom edge.
+        const b4 = iso(d.x, d.y + d.h, 0);
+        const b3 = iso(d.x + d.w, d.y + d.h, 0);
+        for (let i = 0; i < 5; i++) {
+          const f = (i + 0.5) / 5;
+          const px = b4.x + (b3.x - b4.x) * f;
+          const py = b4.y + (b3.y - b4.y) * f + 7;
+          ctx.fillStyle = i % 2 === 0 ? 'rgba(251,191,36,0.85)' : 'rgba(17,24,39,0.9)';
+          ctx.beginPath();
+          ctx.moveTo(px, py - 4);
+          ctx.lineTo(px + 7, py);
+          ctx.lineTo(px, py + 4);
+          ctx.lineTo(px - 7, py);
+          ctx.closePath();
+          ctx.fill();
+        }
       }
     });
   }
@@ -481,6 +734,15 @@ export function drawEntities(ctx, G, time) {
       ctx.ellipse(p.x, p.y, 20, 11, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      // Vertical light beam above the pod (like the reference's pillars).
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const beam = ctx.createLinearGradient(p.x, p.y - 90, p.x, p.y);
+      beam.addColorStop(0, 'rgba(34,211,238,0)');
+      beam.addColorStop(1, 'rgba(34,211,238,0.30)');
+      ctx.fillStyle = beam;
+      ctx.fillRect(p.x - 6, p.y - 90, 12, 90);
+      ctx.restore();
       const pulse = 1 + 0.12 * Math.sin(time * 3 + c.x);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';

@@ -325,63 +325,89 @@ export function updateSweepers(G, dt) {
 export function drawThief(ctx, x, y, color, opts = {}) {
   const { face = 0, alpha = 1, tag = null, scarf = true, time = 0, shield = false } = opts;
   const c = iso(x, y);
-  const top = iso(x, y, 30);
+  const top = iso(x, y, 36);
   ctx.save();
   ctx.globalAlpha = alpha;
   // Long, soft directional drop-shadow.
-  isoShadow(ctx, x, y, 13, 6, 0.45);
+  isoShadow(ctx, x, y, 16, 7, 0.45);
   // Holographic scarf: a sine ribbon trailing behind the movement direction.
   if (scarf) {
     ctx.strokeStyle = color;
     ctx.globalAlpha = alpha * 0.75;
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 6;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    const bx = x - Math.cos(face) * 8, by = y - Math.sin(face) * 8;
-    const bp = iso(bx, by, 22);
+    const bx = x - Math.cos(face) * 9, by = y - Math.sin(face) * 9;
+    const bp = iso(bx, by, 26);
     ctx.moveTo(bp.x, bp.y);
     for (let i = 1; i <= 4; i++) {
-      const px = bx - Math.cos(face) * i * 7 + Math.sin(time * 6 + i) * 3;
-      const py = by - Math.sin(face) * i * 7 + Math.cos(time * 5 + i * 1.3) * 3;
-      const pp = iso(px, py, 22 - i * 2);
+      const px = bx - Math.cos(face) * i * 8 + Math.sin(time * 6 + i) * 3.5;
+      const py = by - Math.sin(face) * i * 8 + Math.cos(time * 5 + i * 1.3) * 3.5;
+      const pp = iso(px, py, 26 - i * 2.4);
       ctx.lineTo(pp.x, pp.y);
     }
     ctx.stroke();
     ctx.globalAlpha = alpha;
   }
+  // Additive halo behind the hood: the figure glows against the dark floor.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const halo = ctx.createRadialGradient(top.x, top.y - 4, 1, top.x, top.y - 4, 20);
+  halo.addColorStop(0, color + '44');
+  halo.addColorStop(1, color + '00');
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(top.x, top.y - 4, 20, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
   // Cloak body: tapered torso from the floor diamond up to the hood.
   ctx.fillStyle = '#1b2340';
   ctx.beginPath();
-  ctx.moveTo(c.x - 12, c.y);
-  ctx.lineTo(top.x - 7, top.y);
-  ctx.lineTo(top.x + 7, top.y);
-  ctx.lineTo(c.x + 12, c.y);
+  ctx.moveTo(c.x - 14.5, c.y);
+  ctx.lineTo(top.x - 8.5, top.y);
+  ctx.lineTo(top.x + 8.5, top.y);
+  ctx.lineTo(c.x + 14.5, c.y);
   ctx.closePath();
   ctx.fill();
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.stroke();
+  // Rim light on the upper-left edge (the light rakes in from the left).
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = alpha * 0.95;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(top.x - 8.5, top.y + 2);
+  ctx.lineTo(c.x - 14.5, c.y - 4);
+  ctx.stroke();
+  ctx.globalAlpha = alpha;
   // Gold trim at the hem.
   ctx.strokeStyle = 'rgba(251,191,36,0.7)';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(c.x - 11, c.y - 3);
-  ctx.lineTo(c.x + 11, c.y - 3);
+  ctx.moveTo(c.x - 13.5, c.y - 3);
+  ctx.lineTo(c.x + 13.5, c.y - 3);
   ctx.stroke();
   // Hood + glowing visor slit.
   ctx.fillStyle = '#2a3358';
   ctx.beginPath();
-  ctx.arc(top.x + Math.cos(face) * 2, top.y - 2, 7, 0, Math.PI * 2);
+  ctx.arc(top.x + Math.cos(face) * 2, top.y - 2, 8.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = color;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(top.x - 4, top.y - 3);
-  ctx.lineTo(top.x + 5, top.y - 3);
+  ctx.moveTo(top.x - 5, top.y - 3);
+  ctx.lineTo(top.x + 6, top.y - 3);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(top.x - 2, top.y - 3);
+  ctx.lineTo(top.x + 3, top.y - 3);
   ctx.stroke();
   // Dagger glint in the facing hand (projected along the facing vector).
-  const d1 = iso(x + Math.cos(face) * 10, y + Math.sin(face) * 10, 14);
-  const d2 = iso(x + Math.cos(face) * 17, y + Math.sin(face) * 17, 14);
+  const d1 = iso(x + Math.cos(face) * 12, y + Math.sin(face) * 12, 16);
+  const d2 = iso(x + Math.cos(face) * 20, y + Math.sin(face) * 20, 16);
   ctx.strokeStyle = '#e8ecff';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -393,7 +419,7 @@ export function drawThief(ctx, x, y, color, opts = {}) {
     ctx.strokeStyle = 'rgba(34,211,238,0.9)';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.ellipse(c.x, c.y - 8, 20 + Math.sin(time * 8) * 1.5, 11, 0, 0, Math.PI * 2);
+    ctx.ellipse(c.x, c.y - 8, 23 + Math.sin(time * 8) * 1.5, 12.5, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
   // Overhead tag.
@@ -402,12 +428,12 @@ export function drawThief(ctx, x, y, color, opts = {}) {
     const w = ctx.measureText(tag).width + 10;
     ctx.fillStyle = 'rgba(10,14,26,0.85)';
     ctx.beginPath();
-    ctx.roundRect(c.x - w / 2, top.y - 26, w, 14, 4);
+    ctx.roundRect(c.x - w / 2, top.y - 30, w, 14, 4);
     ctx.fill();
     ctx.fillStyle = color;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(tag, c.x, top.y - 18.5);
+    ctx.fillText(tag, c.x, top.y - 22.5);
   }
   ctx.restore();
 }
@@ -417,7 +443,8 @@ export function drawThief(ctx, x, y, color, opts = {}) {
 export function drawTurret(ctx, t, time) {
   const c = iso(t.x, t.y);
   const aim = iso(t.x + Math.cos(t.angle) * t.range, t.y + Math.sin(t.angle) * t.range);
-  // Sentry vision cone (additive) along the aim direction.
+  // Sentry vision cone (additive) along the aim direction: a wide faint
+  // sweep plus a narrower hot core, so the cone reads at a glance.
   if (t.disabledT <= 0) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -425,13 +452,26 @@ export function drawTurret(ctx, t, time) {
     const e1 = iso(t.x + Math.cos(t.angle + spread) * t.range, t.y + Math.sin(t.angle + spread) * t.range);
     const e2 = iso(t.x + Math.cos(t.angle - spread) * t.range, t.y + Math.sin(t.angle - spread) * t.range);
     const cone = ctx.createLinearGradient(c.x, c.y, aim.x, aim.y);
-    cone.addColorStop(0, 'rgba(239,68,68,0.20)');
+    cone.addColorStop(0, 'rgba(239,68,68,0.32)');
     cone.addColorStop(1, 'rgba(239,68,68,0)');
     ctx.fillStyle = cone;
     ctx.beginPath();
     ctx.moveTo(c.x, c.y - 14);
     ctx.lineTo(e1.x, e1.y);
     ctx.lineTo(e2.x, e2.y);
+    ctx.closePath();
+    ctx.fill();
+    const spread2 = 0.13;
+    const f1 = iso(t.x + Math.cos(t.angle + spread2) * t.range, t.y + Math.sin(t.angle + spread2) * t.range);
+    const f2 = iso(t.x + Math.cos(t.angle - spread2) * t.range, t.y + Math.sin(t.angle - spread2) * t.range);
+    const cone2 = ctx.createLinearGradient(c.x, c.y, aim.x, aim.y);
+    cone2.addColorStop(0, 'rgba(251,146,60,0.30)');
+    cone2.addColorStop(1, 'rgba(251,146,60,0)');
+    ctx.fillStyle = cone2;
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.y - 14);
+    ctx.lineTo(f1.x, f1.y);
+    ctx.lineTo(f2.x, f2.y);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -453,13 +493,19 @@ export function drawTurret(ctx, t, time) {
     const b1 = iso(t.x + Math.cos(t.angle) * 22, t.y + Math.sin(t.angle) * 22, 14);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(239,68,68,0.35)';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(b1.x, b1.y);
+    ctx.lineTo(aim.x, aim.y);
+    ctx.stroke();
     ctx.strokeStyle = '#ef4444';
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(b1.x, b1.y);
     ctx.lineTo(aim.x, aim.y);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(b1.x, b1.y);
@@ -514,14 +560,14 @@ export function drawTurret(ctx, t, time) {
 export function drawWarden(ctx, w, time) {
   const { x, y } = w;
   const c = iso(x, y);
-  const top = iso(x, y, 44);
+  const top = iso(x, y, 48);
   ctx.save();
   // Long cast shadow.
-  isoShadow(ctx, x, y, 46, 16, 0.5);
+  isoShadow(ctx, x, y, 50, 17, 0.5);
   // Piston legs.
   for (let k = -1; k <= 1; k++) {
-    const lb = iso(x + k * 34, y + 18);
-    const lt = iso(x + k * 34, y + 18, 26);
+    const lb = iso(x + k * 36, y + 19);
+    const lt = iso(x + k * 36, y + 19, 28);
     ctx.fillStyle = '#4a4238';
     ctx.fillRect(lb.x - 6, lt.y, 12, lb.y - lt.y);
     ctx.fillStyle = '#fbbf24';
@@ -530,7 +576,7 @@ export function drawWarden(ctx, w, time) {
   // Sweep arms (behind the body): segmented bars with claw tips.
   for (let k = 0; k < 2; k++) {
     const a = w.armAngle + k * Math.PI;
-    const b = iso(x, y, 34);
+    const b = iso(x, y, 36);
     const tip = iso(x + Math.cos(a) * 190, y + Math.sin(a) * 190, 34);
     // Live sweep beam.
     if (w.state === 'sweep') {
@@ -599,8 +645,8 @@ export function drawWarden(ctx, w, time) {
   const hexTop = [], hexBot = [];
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
-    hexTop.push(iso(x + Math.cos(a) * 58, y + Math.sin(a) * 58, 44));
-    hexBot.push(iso(x + Math.cos(a) * 58, y + Math.sin(a) * 58, 0));
+    hexTop.push(iso(x + Math.cos(a) * 63, y + Math.sin(a) * 63, 48));
+    hexBot.push(iso(x + Math.cos(a) * 63, y + Math.sin(a) * 63, 0));
   }
   for (let i = 0; i < 6; i++) {
     const j = (i + 1) % 6;
@@ -626,12 +672,12 @@ export function drawWarden(ctx, w, time) {
   ctx.strokeStyle = '#22d3ee';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.ellipse(top.x, top.y, 26, 15, 0, 0, Math.PI * 2);
+  ctx.ellipse(top.x, top.y, 28, 16, 0, 0, Math.PI * 2);
   ctx.stroke();
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + time * 0.4;
-    const s1 = iso(x + Math.cos(a) * 26, y + Math.sin(a) * 26, 44);
-    const s2 = iso(x + Math.cos(a) * 36, y + Math.sin(a) * 36, 44);
+    const s1 = iso(x + Math.cos(a) * 28, y + Math.sin(a) * 28, 48);
+    const s2 = iso(x + Math.cos(a) * 38, y + Math.sin(a) * 38, 48);
     ctx.beginPath();
     ctx.moveTo(s1.x, s1.y);
     ctx.lineTo(s2.x, s2.y);
@@ -642,17 +688,17 @@ export function drawWarden(ctx, w, time) {
   const eye = w.shield ? '#fbbf24' : '#ef4444';
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  const eg = ctx.createRadialGradient(top.x, top.y, 1, top.x, top.y, 24);
+  const eg = ctx.createRadialGradient(top.x, top.y, 1, top.x, top.y, 26);
   eg.addColorStop(0, eye);
   eg.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = eg;
   ctx.beginPath();
-  ctx.arc(top.x, top.y, 24, 0, Math.PI * 2);
+  ctx.arc(top.x, top.y, 26, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
   ctx.fillStyle = eye;
   ctx.beginPath();
-  ctx.arc(top.x, top.y, 13, 0, Math.PI * 2);
+  ctx.arc(top.x, top.y, 14, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#0b1020';
   ctx.beginPath();
@@ -661,7 +707,7 @@ export function drawWarden(ctx, w, time) {
   // Gear crown: six orbs ringing the top, slowly rotating.
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + time * 0.25;
-    const gx = iso(x + Math.cos(a) * 58, y + Math.sin(a) * 58, 62);
+    const gx = iso(x + Math.cos(a) * 63, y + Math.sin(a) * 63, 67);
     ctx.fillStyle = '#8b93ad';
     ctx.beginPath();
     ctx.arc(gx.x, gx.y, 7, 0, Math.PI * 2);
@@ -694,7 +740,7 @@ export function drawWarden(ctx, w, time) {
   }
   ctx.restore();
   // HP bar above.
-  const hpTop = iso(x, y, 96);
+  const hpTop = iso(x, y, 104);
   ctx.save();
   ctx.fillStyle = 'rgba(10,14,26,0.85)';
   ctx.beginPath();
