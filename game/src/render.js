@@ -1,6 +1,7 @@
 // ECHO VAULT — all drawing: the full-bleed vault floor, props, entities,
-import { W, H, ARENA, ECHO_COLORS, clamp, hash01, THREATS, FEATS, F8, F9, F10, F11, F12, F13, F14, F15, F16, F20, F24, F64, R9, R10, R12, R15, PAN, PAN88, PAN90, INK, MUTE, PALE, GOLD, CYAN, GREEN, RED, REDL, SLATE, DARKT, GOLD50, CYAN40, RED40, GREEN25, WARDEN_PYLONS } from './config.js';
-import { STAGE_NAMES } from './levels.js';
+import { W, H, ARENA, ECHO_COLORS, LOOP_BASE, MAX_ECHOES, clamp, hash01, MODS, THREATS, FEATS, F8, F9, F10, F11, F12, F13, F14, F15, F16, F20, F24, F64, R9, R10, R12, R15, PAN, PAN88, PAN90, INK, MUTE, PALE, GOLD, CYAN, GREEN, RED, REDL, SLATE, DARKT, GOLD50, CYAN40, RED40, GREEN25, WARDEN_PYLONS } from './config.js';
+import { STAGE_NAMES, buildStage } from './levels.js';
+import { makeRng } from './random.js';
 import { iso, screenToWorld, isoDiamond, extrudeBox, isoShadow, depthOf, groundEllipse, dot, isoQuad } from './iso.js';
 import { drawThief, drawTurret, drawWarden, segDist } from './entities.js';
 import { glowSprite, drawGlow, vbeamSprite, glowAt } from './glow.js';
@@ -979,6 +980,40 @@ export function drawHUD(ctx, G, time) {
   text(ctx, 'WIN: SHATTER WARDEN', cx - 74, 68, F11, GREEN);
   text(ctx, 'LOSE: INTEGRITY 0', cx + 74, 68, F11, REDL);
 
+  // --- G1 (play only): big score block top-right — SCORE + BEST + shards ---
+  // (Draft keeps its own shards pill, so the block is play-only.)
+  if (st.screen === 'play') {
+    ctx.save();
+    panel(ctx, 1096, 8, 172, 54, 10, GOLD50, PAN88);
+    text(ctx, 'SCORE ' + st.score.toLocaleString('en-US'), 1182, 25, F15, GOLD);
+    text(ctx, 'BEST ' + (G.persist.best ? G.persist.best.toLocaleString('en-US') : '—') + '   ◆ ' + st.shards, 1182, 44, F10, PALE);
+    ctx.restore();
+  }
+
+  // --- G4 (play only): realm progress bar — V1..V7 with YOU marker ---
+  // Bottom strip, just above the ability dock: the top band is reserved for
+  // entity overhead tags / callouts (the Warden tag lives there in the
+  // boss fight), so a bar there would overlap them.
+  if (st.screen === 'play') {
+    ctx.save();
+    const rx0 = 420, rx1 = 860, ry = 618;
+    ctx.strokeStyle = 'rgba(203,213,225,0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(rx0, ry); ctx.lineTo(rx1, ry); ctx.stroke();
+    for (let i = 0; i < 7; i++) {
+      const nx = rx0 + (i / 6) * (rx1 - rx0);
+      const done = i + 1 < st.stage, cur = i + 1 === st.stage;
+      ctx.fillStyle = done ? GREEN : cur ? GOLD : '#1e293b';
+      ctx.beginPath(); ctx.arc(nx, ry, cur ? 9 : 7, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = done ? GREEN : cur ? GOLD : SLATE;
+      ctx.lineWidth = cur ? 2.5 : 1.5; ctx.stroke();
+      text(ctx, done ? '✓' : 'V' + (i + 1), nx, ry, F8, done || cur ? DARKT : MUTE);
+      if (cur) text(ctx, 'YOU', nx, ry - 26, F9, GOLD);
+      text(ctx, 'V' + (i + 1), nx, ry - 14, F8, cur ? GOLD : MUTE);
+    }
+    ctx.restore();
+  }
+
   // --- Left panel: Active Echo Timeline + Chrono-Mods Held ---
   const rows = [{ label: 'YOU', color: INK, rec: null }];
   for (const e of G.echoes) rows.push({ label: 'ECHO ' + (e.idx + 1), color: e.color, rec: e.recording });
@@ -1025,21 +1060,24 @@ export function drawHUD(ctx, G, time) {
   text(ctx, '◆ ' + st.shards + ' SHARDS', 98, 102 + rows.length * 26 + 28 + Math.max(1, st.mods.length) * 20, F11, GOLD, 'center');
   ctx.restore();
 
-  // --- Right panel: Vault Security / Threat Queue ---
+  // --- Right panel: Incoming threat queue (G5) — counts big, total on top ---
   ctx.save();
-  panel(ctx, 1096, 66, 172, 236, 10, RED40, PAN88);
-  text(ctx, 'VAULT SECURITY', 1182, 82, F11, REDL, 'center');
+  panel(ctx, 1096, 66, 172, 244, 10, RED40, PAN88);
+  text(ctx, 'INCOMING', 1182, 82, F11, REDL, 'center');
   const threats = G.threatList();
+  const foesLeft = threats.reduce((a, t) => a + (t.count || 0), 0);
+  text(ctx, 'THREATS LEFT: ' + foesLeft, 1182, 100, F11, GOLD, 'center');
   threats.slice(0, 5).forEach((t, i) => {
-    const y = 104 + i * 34;
-    text(ctx, t.name, 1108, y - 4, F10, INK, 'left');
-    text(ctx, t.note, 1256, y - 4, R9, MUTE, 'right');
-    if (t.frac != null) hpBar(ctx, 1108, y + 4, 148, t.frac, t.color || RED);
+    const y = 120 + i * 32;
+    text(ctx, t.name, 1108, y - 5, F10, INK, 'left');
+    text(ctx, '×' + t.count, 1256, y - 5, F13, GOLD, 'right');
+    text(ctx, t.note, 1108, y + 9, R9, MUTE, 'left');
+    if (t.frac != null) hpBar(ctx, 1160, y + 4, 96, t.frac, t.color || RED);
   });
-  if (threats.length === 0) text(ctx, 'All quiet… for now.', 1182, 130, R10, MUTE, 'center');
+  if (threats.length === 0) text(ctx, 'All quiet… for now.', 1182, 150, R10, MUTE, 'center');
   if (st.stage === 7 && S.warden) {
-    text(ctx, 'BOSS ON THE FLOOR', 1182, 104 + 5 * 34 + 6, F10, GOLD, 'center');
-    text(ctx, 'Chrono-Warden — break the shield!', 1182, 104 + 5 * 34 + 22, R9, MUTE, 'center');
+    text(ctx, 'BOSS 1 OF 1 — ON THE FLOOR', 1182, 282, F10, GOLD, 'center');
+    text(ctx, 'Chrono-Warden — break the shield!', 1182, 298, R9, MUTE, 'center');
   }
   ctx.restore();
 
@@ -1112,11 +1150,12 @@ export function drawHUD(ctx, G, time) {
   text(ctx, 'VAULT RADAR', rx, ry + rr + 12, F9, MUTE);
   ctx.restore();
 
+  // Mute / pause pills live bottom-left now: top-right holds the G1 score block.
   ctx.save();
-  pill(ctx, 1180, 12, 44, 26, PAN90, 'rgba(148,163,184,0.5)');
-  text(ctx, G.audio.muted ? 'MUTE' : 'SOUND', 1202, 25, F9, INK);
-  pill(ctx, 1228, 12, 40, 26, PAN90, 'rgba(148,163,184,0.5)');
-  text(ctx, 'II', 1248, 25, F10, INK);
+  pill(ctx, 170, 656, 52, 34, PAN90, 'rgba(148,163,184,0.5)');
+  text(ctx, G.audio.muted ? 'MUTE' : 'SOUND', 196, 673, F9, INK);
+  pill(ctx, 226, 656, 40, 34, PAN90, 'rgba(148,163,184,0.5)');
+  text(ctx, 'II', 246, 673, F10, INK);
   ctx.restore();
 }
 
@@ -1208,6 +1247,12 @@ export function drawTitle(ctx, G, time) {
   text(ctx, 'WIN: SHATTER WARDEN', 535, 235, F11, GREEN);
   pill(ctx, 650, 222, 190, 26, 'rgba(239,68,68,0.25)', REDL);
   text(ctx, 'LOSE: INTEGRITY 0', 745, 235, F11, REDL);
+  // --- Title counts line (T1): every number comes from the real game data ---
+  // 7 stages (STAGE_NAMES), 1 boss (warden exists only on stage 7), 8 mods
+  // (MODS), 6 threat types (THREATS), 8 feats (FEATS), 21 cores (7 x 3).
+  panel(ctx, 280, 256, 720, 28, GOLD50);
+  text(ctx, `${STAGE_NAMES.length - 1} VAULTS · 1 BOSS · ${MODS.length} CHRONO-MODS · ${THREATS.length} THREATS · ${FEATS.length} FEATS · 21 CORES`, 640, 270, F12, INK);
+  text(ctx, `${MAX_ECHOES} PAST SELVES · ${LOOP_BASE.toFixed(0)}-SECOND LOOPS · 3 CORES PER VAULT`, 640, 296, F11, PALE);
   panel(ctx, 12, 250, 184, 150, 10, GOLD50);
   text(ctx, 'YOUR HEISTS', 104, 268, F11, GOLD);
   const pRows = [
@@ -1329,6 +1374,22 @@ const RARECOL = { C: MUTE, R: CYAN, E: GOLD };
 const RARENAME = { C: 'COMMON', R: 'RARE', E: 'EPIC' };
 const NEXT_NEW = { 2: 'Sentry Turret', 3: 'Temporal Jammer', 4: 'Sentry Turret + Jammer', 5: 'Laser Sweeper', 6: 'Chrono-Mine', 7: 'THE CHRONO-WARDEN' };
 
+// Next-wave enemy counts, computed from the real next stage layout
+// (buildStage) so the numbers on the draft screen can never drift from
+// the game. Stage 7 is the last vault, so there is no next wave after it.
+function nextWaveCounts(stage) {
+  if (stage >= 7) return '';
+  const S = buildStage(stage + 1, makeRng(1337));
+  const parts = [];
+  if (S.turrets.length) parts.push(`SENTRY TURRET ×${S.turrets.length}`);
+  if (S.mines.length) parts.push(`CHRONO-MINE ×${S.mines.length}`);
+  if (S.sweepers.length) parts.push(`LASER SWEEPER ×${S.sweepers.length}`);
+  if (S.jammers.length) parts.push(`JAMMER ×${S.jammers.length}`);
+  if (S.lasers.length) parts.push(`LASER GRID ×${S.lasers.length}`);
+  if (S.warden) parts.push('CHRONO-WARDEN ×1');
+  return parts.join(' · ');
+}
+
 export function drawDraft(ctx, G) {
   const st = G.state;
   ctx.save();
@@ -1339,7 +1400,7 @@ export function drawDraft(ctx, G) {
   text(ctx, '◆ ' + st.shards + ' SHARDS', 1080, 26, F13, GOLD);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  text(ctx, 'VAULT BLUEPRINT — ROUTE MAP', 640, 156, F11, GOLD);
+  text(ctx, '② YOUR ROAD — VAULT BLUEPRINT', 640, 156, F11, GOLD);
   ctx.strokeStyle = 'rgba(251,191,36,0.4)';
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(200, 176); ctx.lineTo(1080, 176); ctx.stroke();
@@ -1353,8 +1414,11 @@ export function drawDraft(ctx, G) {
     text(ctx, STAGE_NAMES[i + 1], nx, 198, R10, next ? GOLD : PALE);
   }
   text(ctx, 'NEXT: VAULT ' + (st.stage + 1) + ' — ' + STAGE_NAMES[st.stage + 1] + ' · NEW: ' + NEXT_NEW[st.stage + 1], 640, 214, F12, CYAN);
+  // Next-wave enemy counts, built from the real next stage (buildStage) —
+  // never hand-typed, so the counts cannot drift from the game.
+  text(ctx, 'NEXT WAVE — ' + nextWaveCounts(st.stage), 640, 232, F11, GOLD);
   st.draft.forEach((m, i) => {
-    const x = 640 - 3 * 140 + i * 290 + 15, y = 224, w = 260, h = 290;
+    const x = 640 - 3 * 140 + i * 290 + 15, y = 242, w = 260, h = 290;
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, 12);
@@ -1414,15 +1478,15 @@ export function drawDraft(ctx, G) {
   });
   const canMend = st.shards >= 20 && st.hpLeft < st.maxHp;
   const canReroll = st.shards >= 10;
-  pill(ctx, 400, 530, 180, 36, canMend ? GREEN25 : PAN, canMend ? GREEN : 'rgba(148,163,184,0.4)');
-  text(ctx, 'MEND +1 ◆20', 490, 548, F13, canMend ? GREEN : SLATE);
-  pill(ctx, 600, 530, 160, 36, canReroll ? 'rgba(34,211,238,0.25)' : PAN, canReroll ? CYAN : 'rgba(148,163,184,0.4)');
-  text(ctx, 'REROLL ◆10 [R]', 680, 548, F13, canReroll ? CYAN : SLATE);
-  text(ctx, '◆ ' + st.shards, 800, 548, F14, GOLD, 'left');
-  panel(ctx, 640 - 310, 580, 620, 30, 10, null, 'rgba(5,7,13,0.78)');
+  pill(ctx, 400, 548, 180, 36, canMend ? GREEN25 : PAN, canMend ? GREEN : 'rgba(148,163,184,0.4)');
+  text(ctx, 'MEND +1 ◆20', 490, 566, F13, canMend ? GREEN : SLATE);
+  pill(ctx, 600, 548, 160, 36, canReroll ? 'rgba(34,211,238,0.25)' : PAN, canReroll ? CYAN : 'rgba(148,163,184,0.4)');
+  text(ctx, 'REROLL ◆10 [R]', 680, 566, F13, canReroll ? CYAN : SLATE);
+  text(ctx, '◆ ' + st.shards, 800, 566, F14, GOLD, 'left');
+  panel(ctx, 640 - 310, 598, 620, 30, 10, null, 'rgba(5,7,13,0.78)');
   ctx.fillStyle = PALE;
   ctx.font = '13px Georgia, serif';
-  ctx.fillText('Mods held: ' + (st.mods.length ? st.mods.map((m) => m.name).join(' · ') : 'none yet') + '  (' + st.mods.length + '/5)', 640, 596);
+  ctx.fillText('Mods held: ' + (st.mods.length ? st.mods.map((m) => m.name).join(' · ') : 'none yet') + '  (' + st.mods.length + '/5)', 640, 614);
   ctx.restore();
 }
 

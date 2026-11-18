@@ -174,9 +174,9 @@ class Game {
         return;
       }
       if (this.state.screen !== 'play' || this.paused) return;
-      if (y >= 12 && y <= 38) {
-        if (x >= 1180 && x <= 1224) { this.audio.toggleMute(); return; }
-        if (x >= 1228 && x <= 1268) { this.paused = !this.paused; return; }
+      if (y >= 656 && y <= 690) {
+        if (x >= 170 && x <= 222) { this.audio.toggleMute(); return; }
+        if (x >= 226 && x <= 266) { this.paused = !this.paused; return; }
       }
       const dockW = 5 * 84 + 4 * 8;
       const dockX = 640 - dockW / 2;
@@ -365,15 +365,15 @@ class Game {
     const list = [];
     const liveTurrets = S.turrets.filter((t) => !t.dead);
     if (liveTurrets.length) {
-      list.push({ name: `Sentry Turret ×${liveTurrets.length}`, note: 'rotating', frac: liveTurrets[0].hp / 3, color: RED });
+      list.push({ name: 'Sentry Turret', count: liveTurrets.length, note: 'rotating', frac: liveTurrets[0].hp / 3, color: RED });
     }
     const liveLasers = S.lasers.filter((l) => l.on).length;
-    if (liveLasers) list.push({ name: `Laser Grid ×${liveLasers}`, note: 'live beams', frac: null });
+    if (liveLasers) list.push({ name: 'Laser Grid', count: liveLasers, note: 'live beams', frac: null });
     const liveMines = S.mines.filter((m) => !m.gone).length;
-    if (liveMines) list.push({ name: `Chrono-Mine ×${liveMines}`, note: 'proximity', frac: null });
-    if (S.sweepers.length) list.push({ name: `Laser Sweeper ×${S.sweepers.length}`, note: 'patrolling', frac: null });
+    if (liveMines) list.push({ name: 'Chrono-Mine', count: liveMines, note: 'proximity', frac: null });
+    if (S.sweepers.length) list.push({ name: 'Laser Sweeper', count: S.sweepers.length, note: 'patrolling', frac: null });
     if (S.warden && S.warden.hp > 0) {
-      list.push({ name: 'Warden Shield Nodes', note: S.warden.shield ? 'shielded' : 'BROKEN', frac: S.warden.hp / S.warden.maxHp, color: GOLD });
+      list.push({ name: 'Warden Shield Nodes', count: 1, note: S.warden.shield ? 'shielded' : 'BROKEN', frac: S.warden.hp / S.warden.maxHp, color: GOLD });
     }
     return list;
   }
@@ -671,6 +671,7 @@ class Game {
       this.startStage(7);
       const st = this.state;
       st.screen = 'play';
+      this.persist = DEMO_PERSIST;
       st.score = 14937;
       st.combo = 4.5;
       st.maxSync = 4.5;
@@ -703,6 +704,7 @@ class Game {
       this.stage.turrets[0].state = 'fire';
       this.stage.turrets[0].angle = 0.4;
     } else if (name === 'draft') {
+      this.startStage(3);
       this.state.screen = 'draft';
       this.player.x = 400;
       this.player.y = 600;
